@@ -8,7 +8,7 @@ requires = ["setuptools>=70", "setuptools-scm>=8"]
 name = "dataset-registry"
 description = "Registry for imaging dataset metadata and provenance."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 license = { text = "BSD 3-Clause License" }
 authors = [
     { email = "malinmayorc@janelia.hhmi.org", name = "Caroline Malin-Mayor" },
@@ -19,13 +19,15 @@ classifiers = [
     "License :: OSI Approved :: BSD License",
     "Natural Language :: English",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Typing :: Typed",
 ]
 dynamic = ["version"]
 dependencies = [
-    "coolname>=2.0,<3",
+    "coolname>=4.0,<6",
     "janelia-pathlib>=0.1,<0.2",
     "platformdirs>=4.0,<5",
     "pydantic>=2.0,<3",
@@ -60,7 +62,7 @@ dev = [
 # https://docs.astral.sh/ruff/rules/
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py311"
 fix = true
 src = ["src"]
 
@@ -105,8 +107,11 @@ testpaths = ["tests"]
 pythonpath = ["tests"]
 filterwarnings = [
     "error",
-    # if needed, add global ignores here, for example:
-    # "ignore:Some message:SomeCategory",
+    # Tests run with JANELIA_PATHLIB_NO_FETCH=1 (no network access assumed)
+    # and no pre-populated share cache, so janelia-pathlib always warns that
+    # paths won't be translated -- harmless here, since test paths are never
+    # real Janelia shares.
+    "ignore:No share data available.*:UserWarning:janelia_pathlib",
 ]
 
 # https://mypy.readthedocs.io/en/stable/config_file.html
