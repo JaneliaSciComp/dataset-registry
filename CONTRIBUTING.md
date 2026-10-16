@@ -157,16 +157,21 @@ it without the underscore and let it have its own docs page.
 just test        # run the test suite
 just test-cov    # run the test suite with a coverage report
 just lint        # run ruff (lint + format) and the other pre-commit hooks
-just typecheck   # run mypy
+just typecheck   # run mypy via pre-commit
 ```
 
-Linting and formatting are handled by [ruff](https://docs.astral.sh/ruff/) via
-pre-commit, so most style issues are fixed automatically when you commit.
+Linting, formatting and type checking are all handled via
+[pre-commit](https://pre-commit.com/) hooks (ruff for lint/format, mypy for type
+checking), so most style issues are fixed automatically when you commit, and
+mypy always runs with the same stub/type-dependency setup declared in
+`.pre-commit-config.yaml` whether you run it locally or it runs in CI.
 
 ## Pull requests
 
-CI runs the test suite across Linux, macOS and Windows and type checks with mypy. Please make sure `just test`, `just lint` and
-`just typecheck` pass locally before opening a pull request.
+CI runs the test suite across Linux, macOS and Windows. Type checking and linting run via pre-commit
+(locally on commit, and in CI through pre-commit.ci) rather than as a separate
+CI job. Please make sure `just test`, `just lint` and `just typecheck` pass
+locally before opening a pull request.
 
 ## Releasing
 

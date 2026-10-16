@@ -23,7 +23,7 @@ lint:
 
 # run type checking
 typecheck:
-    uv run mypy
+    uv run pre-commit run mypy --all-files
 
 # upgrade locked dependency versions (commit the resulting uv.lock)
 upgrade:

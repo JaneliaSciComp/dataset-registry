@@ -37,8 +37,8 @@ repos:
       - id: mypy
         files: "^src/"
         # pre-commit's own venv runs on an older Python than this repo
-        # requires; pin the hook's interpreter so deps needing >=3.12
+        # requires; pin the hook's interpreter so deps needing >=3.11
         # (e.g. janelia-pathlib) can actually be installed.
-        language_version: "python3.12"
+        language_version: "python3.11"
         # add type stubs / runtime deps needed for type checking here
-        additional_dependencies: ["pandas-stubs>=2,<3", "pydantic>=2.0,<3", "janelia-pathlib>=0.1.0,<0.2"]
+        additional_dependencies: ["pandas-stubs>=2,<3", "pydantic>=2.0,<3", "janelia-pathlib>=0.1.0,<0.2", "coolname>=2.0,<3"]

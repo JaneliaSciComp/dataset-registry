@@ -12,19 +12,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  typecheck:
-    name: Type checking
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0 # setuptools-scm needs tags to determine the version
-      - uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-      - name: Run mypy
-        run: uv run mypy
-
   test:
     name: ${{ matrix.platform }} py${{ matrix.python-version }} ${{ matrix.resolution }}
     runs-on: ${{ matrix.platform }}
@@ -35,12 +22,41 @@ jobs:
       JANELIA_PATHLIB_NO_FETCH: "1"
     strategy:
       fail-fast: false
+      # OS-specific bugs are almost always OS/driver related and Python-version-
+      # agnostic, while version-specific bugs are language/stdlib related and OS-
+      # agnostic -- the two axes rarely interact, so we don't need their full cross:
+      #   - lowest-direct (oldest allowed deps) on all platforms, but only at our
+      #     floor Python version -- those dependency versions predate newer Pythons
+      #     anyway, so testing them there too is redundant.
+      #   - highest deps on all platforms, but only at our newest supported Python.
+      #   - any Python version in between only on ubuntu (cheapest runner), as a
+      #     spot-check rather than a full platform cross.
       matrix:
-        platform: [ubuntu-latest, macos-latest, windows-latest]
-        python-version:
-          - "3.12"
-          - "3.13"
-        resolution: [highest, lowest-direct]
+        include:
+          - platform: ubuntu-latest
+            python-version: "3.11"
+            resolution: lowest-direct
+          - platform: macos-latest
+            python-version: "3.11"
+            resolution: lowest-direct
+          - platform: windows-latest
+            python-version: "3.11"
+            resolution: lowest-direct
+          - platform: ubuntu-latest
+            python-version: "3.12"
+            resolution: highest
+          - platform: ubuntu-latest
+            python-version: "3.13"
+            resolution: highest
+          - platform: ubuntu-latest
+            python-version: "3.14"
+            resolution: highest
+          - platform: macos-latest
+            python-version: "3.14"
+            resolution: highest
+          - platform: windows-latest
+            python-version: "3.14"
+            resolution: highest
 
     steps:
       - uses: actions/checkout@v6
@@ -68,7 +84,7 @@ jobs:
 
   deploy:
     name: Create release
-    needs: [test, typecheck]
+    needs: [test]
     if: success() && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
