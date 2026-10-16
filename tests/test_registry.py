@@ -280,13 +280,12 @@ def _git(args: list[str], cwd: Path) -> None:
 def _init_remote(tmp_path: Path) -> Path:
     remote = tmp_path / "remote"
     remote.mkdir()
-    _git(["init", "-q"], cwd=remote)
+    _git(["init", "-q", "-b", "main"], cwd=remote)
     _git(["config", "user.email", "test@example.com"], cwd=remote)
     _git(["config", "user.name", "Test"], cwd=remote)
     _write_sample(remote, "SLS161")
     _git(["add", "-A"], cwd=remote)
     _git(["commit", "-q", "-m", "initial"], cwd=remote)
-    _git(["symbolic-ref", "HEAD", "refs/heads/main"], cwd=remote)
     return remote
 
 
