@@ -88,14 +88,18 @@ jobs:
     if: success() && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
-      contents: write # for creating the GitHub release
+      id-token: write # for trusted publishing to PyPI
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
 
-      - name: Create release
-        uses: softprops/action-gh-release@v3
-        with:
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'a') || contains(github.ref_name, 'b') }}
+      - name: Build
+        run: uv build
+
+      # Requires a trusted publisher to be configured on PyPI:
+      # https://docs.pypi.org/trusted-publishers/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
