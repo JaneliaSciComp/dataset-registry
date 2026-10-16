@@ -445,6 +445,7 @@ name = "dataset-registry"
 source = { editable = "." }
 dependencies = [
     { name = "coolname" },
+    { name = "janelia-pathlib" },
     { name = "platformdirs" },
     { name = "pydantic" },
     { name = "tomli-w" },
@@ -455,22 +456,15 @@ browse = [
     { name = "pandas" },
     { name = "panel" },
 ]
-janelia = [
-    { name = "janelia-pathlib" },
-]
 
 [package.dev-dependencies]
 dev = [
-    { name = "dataset-registry", extra = ["janelia"] },
     { name = "ipython" },
     { name = "mypy" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
-]
-janelia = [
-    { name = "dataset-registry", extra = ["janelia"] },
 ]
 test = [
     { name = "pytest" },
@@ -480,18 +474,17 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "coolname", specifier = ">=2.0,<3" },
-    { name = "janelia-pathlib", marker = "extra == 'janelia'", git = "https://github.com/JaneliaSciComp/janelia-pathlib" },
+    { name = "janelia-pathlib", specifier = ">=0.1,<0.2" },
     { name = "pandas", marker = "extra == 'browse'", specifier = ">=2,<3" },
     { name = "panel", marker = "extra == 'browse'", specifier = ">=1.4,<2" },
     { name = "platformdirs", specifier = ">=4.0,<5" },
     { name = "pydantic", specifier = ">=2.0,<3" },
     { name = "tomli-w", specifier = ">=1.0,<2" },
 ]
-provides-extras = ["browse", "janelia"]
+provides-extras = ["browse"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "dataset-registry", extras = ["janelia"] },
     { name = "ipython", specifier = ">=9.16,<10" },
     { name = "mypy", specifier = ">=2.3,<3" },
     { name = "pre-commit", specifier = ">=4.6,<5" },
@@ -499,7 +492,6 @@ dev = [
     { name = "pytest-cov", specifier = ">=7.1,<8" },
     { name = "ruff", specifier = ">=0.16,<0.17" },
 ]
-janelia = [{ name = "dataset-registry", extras = ["janelia"] }]
 test = [
     { name = "pytest", specifier = ">=9.1,<10" },
     { name = "pytest-cov", specifier = ">=7.1,<8" },
@@ -595,9 +587,13 @@ wheels = [
 [[package]]
 name = "janelia-pathlib"
 version = "0.1.0"
-source = { git = "https://github.com/JaneliaSciComp/janelia-pathlib#b0c1fd712cbb43706ceb2f63049a951bc63ac066" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "platformdirs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/75/cc/c02feb648e8ffa13635306136077849208ab257721022c5fd44ce072f778/janelia_pathlib-0.1.0.tar.gz", hash = "sha256:fba057ab885d1cbc8d490d19039ac072179855f2d61e7ac844a29472727b6414", size = 13607, upload-time = "2026-10-16T12:27:47.344Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ea/60/3081bd7e9c73bef689f17b6385119862f6b5ab3e15cfff72ae5bbb63ee81/janelia_pathlib-0.1.0-py3-none-any.whl", hash = "sha256:2c90a1145fdacaeaf9547dcf12ed1ec8fdadf440b5432fa21e5d5cc1b1cace52", size = 10887, upload-time = "2026-10-16T12:27:46.302Z" },
 ]
 
 [[package]]

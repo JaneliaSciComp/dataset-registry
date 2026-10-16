@@ -5,6 +5,7 @@ import logging
 import re
 import subprocess
 import tomllib
+from pathlib import Path
 from typing import Any
 
 import tomli_w
@@ -12,7 +13,6 @@ from coolname import generate_slug
 from platformdirs import user_cache_dir
 from pydantic import BaseModel
 
-from dataset_registry._paths import Path
 from dataset_registry._schema import FreeformMetadata, RegistryInfo, Representation, Sample
 
 SAMPLE_FILENAME = "sample.toml"
@@ -198,11 +198,7 @@ class Registry:
     """
 
     path: Path
-    """Local path this registry resolved to.
-
-    A `JaneliaPath` if `janelia-pathlib` is installed (the `janelia` extra),
-    else a plain `Path` -- see `dataset_registry._paths`.
-    """
+    """Local path this registry resolved to."""
 
     commit: str | None
     """The full commit SHA `path` is checked out at, or `None` if `path`

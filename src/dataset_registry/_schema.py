@@ -1,8 +1,7 @@
 from typing import Any
 
+from janelia_pathlib import from_janelia_uri, to_janelia_uri
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
-
-from dataset_registry._paths import Path, to_linux_str
 
 
 class FreeformMetadata(BaseModel):
@@ -77,13 +76,13 @@ class Representation(BaseModel):
     @field_validator("path", mode="before")
     @classmethod
     def _resolve_path(cls, value: str) -> str:
-        """Normalize `value` to the current OS's form on read, via `Path`."""
-        return str(Path(value))
+        """Resolve a stored `janelia://` URI to a real local path on read."""
+        return from_janelia_uri(value)
 
     @field_serializer("path")
     def _serialize_path(self, value: str) -> str:
-        """Translate `value` to its Linux form on write -- the inverse of `_resolve_path`."""
-        return to_linux_str(value)
+        """Translate `value` to its canonical `janelia://` URI -- the inverse of `_resolve_path`."""
+        return to_janelia_uri(value)
 
     depends_on: list[str] | None = None
     """Ids of other representations of the same sample that this one was
