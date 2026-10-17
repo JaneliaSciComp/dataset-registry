@@ -51,11 +51,14 @@ repository = "https://github.com/JaneliaSciComp/dataset_registry"
 # https://peps.python.org/pep-0735/
 [dependency-groups]
 # Every dependency gets a lower *and* an upper bound; see CONTRIBUTING.md.
-test = ["pytest>=9.1,<10", "pytest-cov>=7.1,<8"]
-dev = [
-    { include-group = "test" },
+test = [
     "dataset-registry[browse]",
     "httpx2>=2.0,<3",
+    "pytest>=9.1,<10",
+    "pytest-cov>=7.1,<8",
+]
+dev = [
+    { include-group = "test" },
     "ipython>=9.16,<10",
     "mypy>=2.3,<3",
     "pre-commit>=4.6,<5",
