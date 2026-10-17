@@ -35,7 +35,12 @@ upgrade-package package:
 
 # serve a live, sortable/filterable view of a registry, e.g. `just browse ~/data-registries/SEM-tracking`
 browse registry_root:
-    uv run --extra browse python scripts/open_browser.py {{ registry_root }}
+    uv run dsr browse {{ registry_root }}
+
+# install `dsr` as a uv tool so `dsr browse ...` works from any directory.
+# Editable by default (tracks this checkout); pass `editable=false` to install a normal snapshot instead.
+install-browser editable="true":
+    uv tool install {{ if editable == "true" { "--editable" } else { "" } }} ".[browse]"
 
 # build wheel and sdist
 build:

@@ -32,11 +32,18 @@ that parses `metadata`) without any change to this package.
 pip install git+https://github.com/JaneliaSciComp/dataset_registry
 ```
 
-To also use the `dsr browse` command / `dataset_registry.browse`, install
-the `browse` extra:
+To also use the `dsr browse` command, install the `browse` extra:
 
 ```bash
 pip install "dataset-registry[browse] @ git+https://github.com/JaneliaSciComp/dataset_registry"
+```
+
+To get `dsr` on your `PATH` from anywhere (not just inside a project's own
+virtual environment), install it as a [uv tool](https://docs.astral.sh/uv/guides/tools/)
+instead:
+
+```bash
+uv tool install "dataset-registry[browse] @ git+https://github.com/JaneliaSciComp/dataset_registry"
 ```
 
 ## Usage
@@ -92,8 +99,8 @@ dsr browse /path/to/registry
 ```
 
 Serves a live, sortable/filterable table of every sample and representation
-in the registry, with an editable detail page for each. Requires the
-`browse` extra (`pandas`, `panel`).
+in the registry, with pages to create and edit samples and representations.
+Requires the `browse` extra (`fastapi`, `jinja2`, `uvicorn`).
 
 ## Development
 

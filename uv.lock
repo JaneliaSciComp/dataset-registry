@@ -286,6 +286,7 @@ browse = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "dataset-registry", extra = ["browse"] },
     { name = "httpx2" },
     { name = "ipython" },
     { name = "mypy" },
@@ -314,6 +315,7 @@ provides-extras = ["browse"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "dataset-registry", extras = ["browse"] },
     { name = "httpx2", specifier = ">=2.0,<3" },
     { name = "ipython", specifier = ">=9.16,<10" },
     { name = "mypy", specifier = ">=2.3,<3" },
