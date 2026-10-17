@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="breadcrumb"><a href="/samples/{{ sample.id }}">&lt; {{ sample.name }}</a></div>
+<div class="card">
+    <div class="actions">
+        <a class="button primary" href="/samples/{{ sample.id }}/representations/{{ representation.id }}/edit">Edit</a>
+    </div>
+    <dl>
+        <dt>Name</dt><dd>{{ representation.name }}</dd>
+        <dt>ID</dt><dd>{{ representation.id }}</dd>
+        <dt>Path</dt><dd>{{ representation.path }}</dd>
+        <dt>Depends on</dt><dd>{{ depends_on_names or "none" }}</dd>
+        <dt>Metadata</dt>
+        <dd>
+            {% if metadata %}
+            <ul>
+                {% for key, value in metadata.items() %}
+                <li><strong>{{ key }}:</strong> {{ value }}</li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <span class="muted">No metadata.</span>
+            {% endif %}
+        </dd>
+    </dl>
+</div>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="actions">
+    <a class="button primary" href="/samples/new">+ New sample</a>
+</div>
+{% if samples %}
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Description</th>
+            <th># representations</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for sample in samples %}
+        <tr class="clickable-row" onclick="window.location='/samples/{{ sample.id }}'">
+            <td>{{ sample.name }}</td>
+            <td>{{ sample.description or "" }}</td>
+            <td>{{ sample.n_representations }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="muted">No samples yet.</p>
+{% endif %}
+{% endblock %}

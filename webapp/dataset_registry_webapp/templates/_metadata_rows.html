@@ -1,0 +1,17 @@
+{# Renders the current set of metadata key/value rows plus an "add row" button.
+   `rows` is a list of (key, value) tuples; `add_row_url` is the htmx endpoint
+   that appends one more blank row and re-renders this same fragment. #}
+<div id="metadata-rows">
+    {% for key, value in rows %}
+    <div class="metadata-row">
+        <input class="key" type="text" name="metadata_key" placeholder="key" value="{{ key }}">
+        <input class="value" type="text" name="metadata_value" placeholder="value" value="{{ value }}">
+        <button type="button" class="remove" onclick="this.parentElement.remove()">&times;</button>
+    </div>
+    {% endfor %}
+</div>
+<button type="button" class="secondary"
+    hx-post="{{ add_row_url }}"
+    hx-target="#metadata-rows"
+    hx-swap="outerHTML"
+    hx-include="closest form">+ Add field</button>
