@@ -120,7 +120,11 @@ convention = "google"
 minversion = "7.0"
 testpaths = ["tests"]
 pythonpath = ["tests"]
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # if needed, add global ignores here, for example:
+    # "ignore:Some message:SomeCategory",
+]
 
 # https://mypy.readthedocs.io/en/stable/config_file.html
 [tool.mypy]
