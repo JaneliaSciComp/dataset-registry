@@ -1,8 +1,12 @@
 import pytest
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
 from dataset_registry import Registry
 from dataset_registry_webapp import create_app
+
+# Lets `async def test_...` run without a `@pytest.mark.anyio` on each one --
+# every test here drives the webapp over ASGI with httpx.AsyncClient.
+pytestmark = pytest.mark.anyio
 
 
 @pytest.fixture
@@ -11,26 +15,28 @@ def registry(tmp_path):
 
 
 @pytest.fixture
-def client(registry):
-    return TestClient(create_app(registry))
+async def client(registry):
+    transport = ASGITransport(app=create_app(registry))
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
 
 
-def test_index_redirects_to_samples(client):
-    response = client.get("/", follow_redirects=False)
+async def test_index_redirects_to_samples(client):
+    response = await client.get("/", follow_redirects=False)
 
     assert response.status_code == 307
     assert response.headers["location"] == "/samples"
 
 
-def test_samples_list_shows_no_samples_message_when_empty(client):
-    response = client.get("/samples")
+async def test_samples_list_shows_no_samples_message_when_empty(client):
+    response = await client.get("/samples")
 
     assert response.status_code == 200
     assert "No samples yet." in response.text
 
 
-def test_create_sample_via_form_persists_it_and_redirects_to_detail(client, registry):
-    response = client.post(
+async def test_create_sample_via_form_persists_it_and_redirects_to_detail(client, registry):
+    response = await client.post(
         "/samples",
         data={
             "name": "Embryo A",
@@ -50,11 +56,11 @@ def test_create_sample_via_form_persists_it_and_redirects_to_detail(client, regi
     assert sample.metadata.model_dump() == {"stage": "gastrula"}
 
 
-def test_sample_detail_shows_its_fields_and_representations(client, registry):
+async def test_sample_detail_shows_its_fields_and_representations(client, registry):
     sample_id = registry.create_sample("Embryo A", description="a lightsheet embryo")
     registry.create_representation(sample_id, "Raw scan", path="/data/raw.tif")
 
-    response = client.get(f"/samples/{sample_id}")
+    response = await client.get(f"/samples/{sample_id}")
 
     assert response.status_code == 200
     assert "Embryo A" in response.text
@@ -63,10 +69,10 @@ def test_sample_detail_shows_its_fields_and_representations(client, registry):
     assert "/data/raw.tif" in response.text
 
 
-def test_update_sample_via_form_renames_and_updates_fields(client, registry):
+async def test_update_sample_via_form_renames_and_updates_fields(client, registry):
     sample_id = registry.create_sample("Embryo A")
 
-    response = client.post(
+    response = await client.post(
         f"/samples/{sample_id}",
         data={"name": "Embryo A (renamed)", "description": "updated"},
         follow_redirects=False,
@@ -78,11 +84,11 @@ def test_update_sample_via_form_renames_and_updates_fields(client, registry):
     assert sample.description == "updated"
 
 
-def test_create_representation_via_form_persists_it_with_depends_on(client, registry):
+async def test_create_representation_via_form_persists_it_with_depends_on(client, registry):
     sample_id = registry.create_sample("Embryo A")
     raw_id = registry.create_representation(sample_id, "Raw scan", path="/data/raw.tif")
 
-    response = client.post(
+    response = await client.post(
         f"/samples/{sample_id}/representations",
         data={
             "name": "Cellpose v3",
@@ -100,25 +106,25 @@ def test_create_representation_via_form_persists_it_with_depends_on(client, regi
     assert representation.depends_on == [raw_id]
 
 
-def test_representation_detail_shows_depends_on_names(client, registry):
+async def test_representation_detail_shows_depends_on_names(client, registry):
     sample_id = registry.create_sample("Embryo A")
     raw_id = registry.create_representation(sample_id, "Raw scan", path="/data/raw.tif")
     seg_id = registry.create_representation(
         sample_id, "Cellpose v3", path="/data/seg.tif", depends_on=[raw_id]
     )
 
-    response = client.get(f"/samples/{sample_id}/representations/{seg_id}")
+    response = await client.get(f"/samples/{sample_id}/representations/{seg_id}")
 
     assert response.status_code == 200
     assert "Raw scan" in response.text
 
 
-def test_update_representation_via_form_changes_depends_on(client, registry):
+async def test_update_representation_via_form_changes_depends_on(client, registry):
     sample_id = registry.create_sample("Embryo A")
     raw_id = registry.create_representation(sample_id, "Raw scan", path="/data/raw.tif")
     seg_id = registry.create_representation(sample_id, "Cellpose v3", path="/data/seg.tif")
 
-    response = client.post(
+    response = await client.post(
         f"/samples/{sample_id}/representations/{seg_id}",
         data={"name": "Cellpose v3", "path": "/data/seg.tif", "depends_on": [raw_id]},
         follow_redirects=False,
@@ -129,33 +135,33 @@ def test_update_representation_via_form_changes_depends_on(client, registry):
     assert representation.depends_on == [raw_id]
 
 
-def test_edit_sample_form_prefills_existing_metadata_rows(client, registry):
+async def test_edit_sample_form_prefills_existing_metadata_rows(client, registry):
     sample_id = registry.create_sample("Embryo A", metadata={"stage": "gastrula"})
 
-    response = client.get(f"/samples/{sample_id}/edit")
+    response = await client.get(f"/samples/{sample_id}/edit")
 
     assert response.status_code == 200
     assert 'value="stage"' in response.text
     assert 'value="gastrula"' in response.text
 
 
-def test_edit_representation_form_prefills_existing_metadata_rows(client, registry):
+async def test_edit_representation_form_prefills_existing_metadata_rows(client, registry):
     sample_id = registry.create_sample("Embryo A")
     representation_id = registry.create_representation(
         sample_id, "Raw scan", path="/data/raw.tif", metadata={"channel": "nuclear"}
     )
 
-    response = client.get(f"/samples/{sample_id}/representations/{representation_id}/edit")
+    response = await client.get(f"/samples/{sample_id}/representations/{representation_id}/edit")
 
     assert response.status_code == 200
     assert 'value="channel"' in response.text
     assert 'value="nuclear"' in response.text
 
 
-def test_saving_sample_edit_form_without_touching_metadata_keeps_it(client, registry):
+async def test_saving_sample_edit_form_without_touching_metadata_keeps_it(client, registry):
     sample_id = registry.create_sample("Embryo A", metadata={"stage": "gastrula"})
 
-    response = client.post(
+    response = await client.post(
         f"/samples/{sample_id}",
         data={
             "name": "Embryo A",
@@ -171,8 +177,8 @@ def test_saving_sample_edit_form_without_touching_metadata_keeps_it(client, regi
     assert sample.metadata.model_dump() == {"stage": "gastrula"}
 
 
-def test_add_metadata_row_endpoint_appends_a_blank_row(client):
-    response = client.post(
+async def test_add_metadata_row_endpoint_appends_a_blank_row(client):
+    response = await client.post(
         "/samples/metadata-row",
         data={"metadata_key": ["stage"], "metadata_value": ["gastrula"]},
     )
