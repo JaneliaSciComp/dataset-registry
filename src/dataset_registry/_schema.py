@@ -1,7 +1,6 @@
 from typing import Any
 
-from janelia_pathlib import from_janelia_uri, to_janelia_uri
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class FreeformMetadata(BaseModel):
@@ -72,17 +71,6 @@ class Representation(BaseModel):
     """Filesystem path to this representation's data. The whole point of
     this registry: code refers to a representation by `id`, so `path` can
     change (the data gets moved) without any change to downstream code."""
-
-    @field_validator("path", mode="before")
-    @classmethod
-    def _resolve_path(cls, value: str) -> str:
-        """Resolve a stored `janelia://` URI to a real local path on read."""
-        return from_janelia_uri(value)
-
-    @field_serializer("path")
-    def _serialize_path(self, value: str) -> str:
-        """Translate `value` to its canonical `janelia://` URI -- the inverse of `_resolve_path`."""
-        return to_janelia_uri(value)
 
     depends_on: list[str] | None = None
     """Ids of other representations of the same sample that this one was

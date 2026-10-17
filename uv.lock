@@ -500,8 +500,6 @@ name = "dataset-registry"
 source = { editable = "." }
 dependencies = [
     { name = "coolname" },
-    { name = "janelia-pathlib", version = "0.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "janelia-pathlib", version = "0.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "platformdirs" },
     { name = "pydantic" },
     { name = "tomli-w" },
@@ -530,7 +528,6 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "coolname", specifier = ">=4.0,<6" },
-    { name = "janelia-pathlib", specifier = ">=0.1,<0.2" },
     { name = "pandas", marker = "extra == 'browse'", specifier = ">=2,<3" },
     { name = "panel", marker = "extra == 'browse'", specifier = ">=1.4,<2" },
     { name = "platformdirs", specifier = ">=4.0,<5" },
@@ -639,37 +636,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ef/4c/5dd1d8af08107f88c7f741ead7a40854b8ac24ddf9ae850afbcf698aa552/ipython_pygments_lexers-1.1.1.tar.gz", hash = "sha256:09c0138009e56b6854f9535736f4171d855c8c08a563a0dcd8022f78355c7e81", size = 8393, upload-time = "2025-01-17T11:24:34.505Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d9/33/1f075bf72b0b747cb3288d011319aaf64083cf2efef8354174e3ed4540e2/ipython_pygments_lexers-1.1.1-py3-none-any.whl", hash = "sha256:a9462224a505ade19a605f71f8fa63c2048833ce50abc86768a0d81d876dc81c", size = 8074, upload-time = "2025-01-17T11:24:33.271Z" },
-]
-
-[[package]]
-name = "janelia-pathlib"
-version = "0.1.0"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.15'",
-    "python_full_version >= '3.12' and python_full_version < '3.15'",
-]
-dependencies = [
-    { name = "platformdirs" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/75/cc/c02feb648e8ffa13635306136077849208ab257721022c5fd44ce072f778/janelia_pathlib-0.1.0.tar.gz", hash = "sha256:fba057ab885d1cbc8d490d19039ac072179855f2d61e7ac844a29472727b6414", size = 13607, upload-time = "2026-10-16T12:27:47.344Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ea/60/3081bd7e9c73bef689f17b6385119862f6b5ab3e15cfff72ae5bbb63ee81/janelia_pathlib-0.1.0-py3-none-any.whl", hash = "sha256:2c90a1145fdacaeaf9547dcf12ed1ec8fdadf440b5432fa21e5d5cc1b1cace52", size = 10887, upload-time = "2026-10-16T12:27:46.302Z" },
-]
-
-[[package]]
-name = "janelia-pathlib"
-version = "0.1.1"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version < '3.12'",
-]
-dependencies = [
-    { name = "platformdirs" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/03/23/53c1b6608a9a6b08a38a6e9927f165049bb258139f333dd850732c889269/janelia_pathlib-0.1.1.tar.gz", hash = "sha256:079bcb3171fdafa0b5a12153d4cfca571aa49a50de205fc50d226a34bd2e2a12", size = 14070, upload-time = "2026-10-16T13:23:52.721Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/3e/56/4d99cac6e659fce8c5c8bac9bd601aa3790486fd1b917eb3f50fa1745263/janelia_pathlib-0.1.1-py3-none-any.whl", hash = "sha256:728fb640a3858d3abd7e3b2e97725cc7bf01b5770a7e6ea9815beca2a790b9fc", size = 10903, upload-time = "2026-10-16T13:23:51.42Z" },
 ]
 
 [[package]]
