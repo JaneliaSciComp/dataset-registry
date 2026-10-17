@@ -100,6 +100,40 @@ def test_create_representation_via_form_persists_it_with_depends_on(client, regi
     assert representation.depends_on == [raw_id]
 
 
+def test_create_representation_via_form_persists_description(client, registry):
+    sample_id = registry.create_sample("Embryo A")
+
+    response = client.post(
+        f"/samples/{sample_id}/representations",
+        data={
+            "name": "Raw scan",
+            "path": "/data/raw.tif",
+            "description": "the raw lightsheet scan",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    (representation_id,) = registry.list_representations(sample_id)
+    representation = registry.load_representation(sample_id, representation_id)
+    assert representation.description == "the raw lightsheet scan"
+
+
+def test_update_representation_via_form_changes_description(client, registry):
+    sample_id = registry.create_sample("Embryo A")
+    representation_id = registry.create_representation(sample_id, "Raw scan", path="/data/raw.tif")
+
+    response = client.post(
+        f"/samples/{sample_id}/representations/{representation_id}",
+        data={"name": "Raw scan", "path": "/data/raw.tif", "description": "updated"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    representation = registry.load_representation(sample_id, representation_id)
+    assert representation.description == "updated"
+
+
 def test_representation_detail_shows_depends_on_names(client, registry):
     sample_id = registry.create_sample("Embryo A")
     raw_id = registry.create_representation(sample_id, "Raw scan", path="/data/raw.tif")

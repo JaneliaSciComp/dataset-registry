@@ -176,67 +176,105 @@ def test_find_representations_by_name_returns_every_match(tmp_path):
     assert sorted(representation.id for representation in matches) == ["a", "b"]
 
 
-def test_rename_sample_changes_name_without_moving_directory(tmp_path):
+def test_save_sample_persists_a_renamed_sample_without_moving_directory(tmp_path):
     _write_sample(tmp_path, "SLS161")
     registry = Registry(tmp_path)
 
-    registry.rename_sample("SLS161", "Embryo A")
+    sample = registry.load_sample("SLS161")
+    sample.name = "Embryo A"
+    registry.save_sample(sample)
 
     assert (tmp_path / "SLS161").is_dir()
-    sample = registry.load_sample("SLS161")
-    assert sample.id == "SLS161"
-    assert sample.name == "Embryo A"
+    reloaded = registry.load_sample("SLS161")
+    assert reloaded.id == "SLS161"
+    assert reloaded.name == "Embryo A"
 
 
-def test_rename_representation_changes_name_without_moving_file(tmp_path):
+def test_save_representation_persists_a_renamed_representation_without_moving_file(tmp_path):
     _write_sample(tmp_path, "SLS161")
     _write_representation(tmp_path, "SLS161", "raw", path="a")
     registry = Registry(tmp_path)
 
-    registry.rename_representation("SLS161", "raw", "Raw scan")
+    representation = registry.load_representation("SLS161", "raw")
+    representation.name = "Raw scan"
+    registry.save_representation("SLS161", representation)
 
     representation_path = tmp_path / "SLS161" / "representations" / "raw.toml"
     assert representation_path.is_file()
-    representation = registry.load_representation("SLS161", "raw")
-    assert representation.id == "raw"
-    assert representation.name == "Raw scan"
+    reloaded = registry.load_representation("SLS161", "raw")
+    assert reloaded.id == "raw"
+    assert reloaded.name == "Raw scan"
 
 
-def test_set_representation_fields_updates_depends_on(tmp_path):
+def test_save_representation_persists_depends_on(tmp_path):
     registry = Registry(tmp_path)
     sample_id = registry.create_sample("Embryo A")
     raw_id = registry.create_representation(sample_id, "Raw scan", path="a")
     seg_id = registry.create_representation(sample_id, "Cellpose v3", path="b")
 
-    registry.set_representation_fields(sample_id, seg_id, depends_on=[raw_id])
-
     representation = registry.load_representation(sample_id, seg_id)
-    assert representation.depends_on == [raw_id]
+    representation.depends_on = [raw_id]
+    registry.save_representation(sample_id, representation)
+
+    reloaded = registry.load_representation(sample_id, seg_id)
+    assert reloaded.depends_on == [raw_id]
 
 
-def test_set_representation_fields_clears_depends_on_with_none(tmp_path):
+def test_save_representation_clears_depends_on_with_none(tmp_path):
     registry = Registry(tmp_path)
     sample_id = registry.create_sample("Embryo A")
     raw_id = registry.create_representation(sample_id, "Raw scan", path="a")
     seg_id = registry.create_representation(sample_id, "Cellpose v3", path="b", depends_on=[raw_id])
 
-    registry.set_representation_fields(sample_id, seg_id, depends_on=None)
-
     representation = registry.load_representation(sample_id, seg_id)
-    assert representation.depends_on is None
+    representation.depends_on = None
+    registry.save_representation(sample_id, representation)
+
+    reloaded = registry.load_representation(sample_id, seg_id)
+    assert reloaded.depends_on is None
 
 
-def test_set_representation_fields_leaves_depends_on_unchanged_when_omitted(tmp_path):
+def test_edit_representation_saves_on_clean_exit(tmp_path):
     registry = Registry(tmp_path)
     sample_id = registry.create_sample("Embryo A")
-    raw_id = registry.create_representation(sample_id, "Raw scan", path="a")
-    seg_id = registry.create_representation(sample_id, "Cellpose v3", path="b", depends_on=[raw_id])
+    representation_id = registry.create_representation(sample_id, "Raw scan", path="a")
 
-    registry.set_representation_fields(sample_id, seg_id, path="c")
+    with registry.edit_representation(sample_id, representation_id) as representation:
+        representation.path = "b"
+        representation.description = "updated"
 
-    representation = registry.load_representation(sample_id, seg_id)
-    assert representation.depends_on == [raw_id]
-    assert representation.path == "c"
+    reloaded = registry.load_representation(sample_id, representation_id)
+    assert reloaded.path == "b"
+    assert reloaded.description == "updated"
+
+
+def test_edit_representation_does_not_save_when_the_block_raises(tmp_path):
+    registry = Registry(tmp_path)
+    sample_id = registry.create_sample("Embryo A")
+    representation_id = registry.create_representation(sample_id, "Raw scan", path="a")
+
+    with (
+        pytest.raises(RuntimeError),
+        registry.edit_representation(sample_id, representation_id) as representation,
+    ):
+        representation.path = "b"
+        raise RuntimeError("boom")
+
+    reloaded = registry.load_representation(sample_id, representation_id)
+    assert reloaded.path == "a"
+
+
+def test_edit_sample_saves_on_clean_exit(tmp_path):
+    registry = Registry(tmp_path)
+    sample_id = registry.create_sample("Embryo A")
+
+    with registry.edit_sample(sample_id) as sample:
+        sample.name = "Embryo A (renamed)"
+        sample.description = "updated"
+
+    reloaded = registry.load_sample(sample_id)
+    assert reloaded.name == "Embryo A (renamed)"
+    assert reloaded.description == "updated"
 
 
 def test_create_sample_generates_a_unique_id_and_is_loadable(tmp_path):
@@ -255,13 +293,29 @@ def test_create_representation_generates_a_unique_id_and_is_loadable(tmp_path):
     sample_id = registry.create_sample("Embryo A")
 
     representation_id = registry.create_representation(
-        sample_id, "Raw scan", path="/groups/shroff/raw.tif"
+        sample_id, "Raw scan", path="/groups/shroff/raw.tif", description="the raw lightsheet scan"
     )
 
     representation = registry.load_representation(sample_id, representation_id)
     assert representation.id == representation_id
     assert representation.name == "Raw scan"
     assert representation.path == "/groups/shroff/raw.tif"
+    assert representation.description == "the raw lightsheet scan"
+
+
+def test_save_representation_clears_description_with_none(tmp_path):
+    registry = Registry(tmp_path)
+    sample_id = registry.create_sample("Embryo A")
+    representation_id = registry.create_representation(
+        sample_id, "Raw scan", path="a", description="original"
+    )
+
+    representation = registry.load_representation(sample_id, representation_id)
+    representation.description = None
+    registry.save_representation(sample_id, representation)
+
+    reloaded = registry.load_representation(sample_id, representation_id)
+    assert reloaded.description is None
 
 
 def test_generate_sample_id_slugifies_the_name_with_a_random_word_suffix(tmp_path):
@@ -300,7 +354,8 @@ def test_depends_on_resolves_by_id_after_the_referenced_representation_is_rename
     raw_id = registry.create_representation(sample_id, "Raw scan", path="a")
     seg_id = registry.create_representation(sample_id, "Cellpose v3", path="b", depends_on=[raw_id])
 
-    registry.rename_representation(sample_id, raw_id, "Renamed raw scan")
+    with registry.edit_representation(sample_id, raw_id) as raw:
+        raw.name = "Renamed raw scan"
 
     segmentation = registry.load_representation(sample_id, seg_id)
     (dependency_id,) = segmentation.depends_on

@@ -8,6 +8,9 @@
     <label for="path">Path</label>
     <input type="text" id="path" name="path" value="{{ representation.path if representation else '' }}" required>
 
+    <label for="description">Description</label>
+    <textarea id="description" name="description" rows="2">{{ representation.description or "" if representation else "" }}</textarea>
+
     <label for="depends_on">Depends on</label>
     <select id="depends_on" name="depends_on" multiple size="{{ [other_representations|length, 4]|min }}">
         {% for other in other_representations %}

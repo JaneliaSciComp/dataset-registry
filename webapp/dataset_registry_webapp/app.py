@@ -149,6 +149,7 @@ def create_app(registry: Registry) -> FastAPI:
                     representation := registry.load_representation(sample_id, representation_id)
                 ).name,
                 "path": representation.path,
+                "description": representation.description,
                 "depends_on_names": _depends_on_names(
                     registry, sample_id, representation.depends_on or []
                 ),
@@ -191,11 +192,11 @@ def create_app(registry: Registry) -> FastAPI:
         metadata_key: Annotated[list[str], Form()] = [],  # noqa: B006
         metadata_value: Annotated[list[str], Form()] = [],  # noqa: B006
     ) -> RedirectResponse:
-        sample = registry.load_sample(sample_id)
-        if name != sample.name:
-            registry.rename_sample(sample_id, name)
         metadata = _parse_metadata(metadata_key, metadata_value)
-        registry.set_sample_fields(sample_id, description=description or None, metadata=metadata)
+        with registry.edit_sample(sample_id) as sample:
+            sample.name = name
+            sample.description = description or None
+            sample.metadata = metadata
         return RedirectResponse(f"/samples/{sample_id}", status_code=303)
 
     @app.get("/samples/{sample_id}/representations/new")
@@ -227,13 +228,19 @@ def create_app(registry: Registry) -> FastAPI:
         sample_id: str,
         name: Annotated[str, Form()],
         path: Annotated[str, Form()],
+        description: Annotated[str, Form()] = "",
         depends_on: Annotated[list[str], Form()] = [],  # noqa: B006
         metadata_key: Annotated[list[str], Form()] = [],  # noqa: B006
         metadata_value: Annotated[list[str], Form()] = [],  # noqa: B006
     ) -> RedirectResponse:
         metadata = _parse_metadata(metadata_key, metadata_value)
         representation_id = registry.create_representation(
-            sample_id, name, path=path, depends_on=depends_on or None, metadata=metadata
+            sample_id,
+            name,
+            path=path,
+            description=description or None,
+            depends_on=depends_on or None,
+            metadata=metadata,
         )
         return RedirectResponse(
             f"/samples/{sample_id}/representations/{representation_id}", status_code=303
@@ -307,21 +314,18 @@ def create_app(registry: Registry) -> FastAPI:
         representation_id: str,
         name: Annotated[str, Form()],
         path: Annotated[str, Form()],
+        description: Annotated[str, Form()] = "",
         depends_on: Annotated[list[str], Form()] = [],  # noqa: B006
         metadata_key: Annotated[list[str], Form()] = [],  # noqa: B006
         metadata_value: Annotated[list[str], Form()] = [],  # noqa: B006
     ) -> RedirectResponse:
-        representation = registry.load_representation(sample_id, representation_id)
-        if name != representation.name:
-            registry.rename_representation(sample_id, representation_id, name)
         metadata = _parse_metadata(metadata_key, metadata_value)
-        registry.set_representation_fields(
-            sample_id,
-            representation_id,
-            path=path,
-            depends_on=depends_on or None,
-            metadata=metadata,
-        )
+        with registry.edit_representation(sample_id, representation_id) as representation:
+            representation.name = name
+            representation.path = path
+            representation.description = description or None
+            representation.depends_on = depends_on or None
+            representation.metadata = metadata
         return RedirectResponse(
             f"/samples/{sample_id}/representations/{representation_id}", status_code=303
         )

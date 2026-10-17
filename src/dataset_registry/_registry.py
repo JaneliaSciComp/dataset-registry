@@ -5,6 +5,8 @@ import logging
 import re
 import subprocess
 import tomllib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -24,9 +26,6 @@ _CACHE_APP_NAME = "dataset-registry"
 _SLUG_MAX_WORDS = 4
 
 _logger = logging.getLogger(__name__)
-
-# Sentinel distinguishing "leave this field unchanged" from "set it to None".
-_UNSET = object()
 
 
 def _load_raw(path: Path) -> dict[str, Any]:
@@ -457,6 +456,7 @@ class Registry:
         name: str,
         *,
         path: str,
+        description: str | None = None,
         depends_on: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> str:
@@ -466,6 +466,7 @@ class Registry:
             sample_id: The owning sample's id.
             name: The representation's initial display name.
             path: Filesystem path to the representation's data.
+            description: Initial description, if any.
             depends_on: Ids of other representations of the same sample that
                 this one was produced from.
             metadata: Initial metadata table, if any.
@@ -482,6 +483,7 @@ class Registry:
             id=representation_id,
             name=name,
             path=path,
+            description=description,
             depends_on=depends_on,
             metadata=self._representation_metadata.model_validate(metadata or {}),
         )
@@ -489,122 +491,102 @@ class Registry:
         _write_model(representation_path, representation)
         return representation_id
 
-    def rename_sample(self, sample_id: str, new_name: str) -> None:
-        """Change a sample's display `name`.
+    def save_sample(self, sample: Sample) -> None:
+        """Write `sample` to disk, overwriting the existing `sample.toml` for its `id`.
+
+        Mutate the `Sample` returned by `load_sample`/`edit_sample` directly
+        (e.g. `sample.name = "..."`, `sample.metadata.stage = "..."`, or
+        replace `metadata` wholesale with a dict or a model instance), then
+        pass it here to persist the change in one write. `metadata` is
+        re-validated into this registry's `sample_metadata_model` first, so
+        assigning a plain dict works the same as assigning an instance of
+        that model.
+
+        Validates `sample` before writing, so a call that would produce an
+        invalid sample fails loudly rather than silently corrupting the file.
 
         Args:
-            sample_id: The sample's stable id.
-            new_name: The new display name.
+            sample: The sample to persist, with `id` matching an existing one.
+
+        Raises:
+            FileNotFoundError: If no sample with this `id` exists yet --
+                use `create_sample` for a new one.
         """
-        sample_path = self._find_sample_dir(sample_id) / SAMPLE_FILENAME
-        sample = _load_model(Sample, _load_raw(sample_path), metadata_model=self._sample_metadata)
-        sample.name = new_name
+        sample_path = self._find_sample_dir(sample.id) / SAMPLE_FILENAME
+        sample.metadata = self._sample_metadata.model_validate(sample.metadata)
         _write_model(sample_path, sample)
 
-    def rename_representation(self, sample_id: str, representation_id: str, new_name: str) -> None:
-        """Change a representation's display `name`.
+    def save_representation(self, sample_id: str, representation: Representation) -> None:
+        """Write `representation` to disk, overwriting its existing file for its `id`.
 
-        Args:
-            sample_id: The owning sample's id.
-            representation_id: The representation's stable id.
-            new_name: The new display name.
-        """
-        representation_path = self._find_representation_path(sample_id, representation_id)
-        representation = _load_model(
-            Representation,
-            _load_raw(representation_path),
-            metadata_model=self._representation_metadata,
-        )
-        representation.name = new_name
-        _write_model(representation_path, representation)
+        Mutate the `Representation` returned by `load_representation`/
+        `edit_representation` directly (e.g. `representation.path = "..."`,
+        `representation.metadata.channel = "..."`, or replace `metadata`
+        wholesale with a dict or a model instance), then pass it here to
+        persist the change in one write. `metadata` is re-validated into
+        this registry's `representation_metadata_model` first, so assigning
+        a plain dict works the same as assigning an instance of that model.
 
-    def set_sample_fields(
-        self,
-        sample_id: str,
-        *,
-        description: str | None = _UNSET,  # type: ignore[assignment]
-        metadata: dict[str, Any] | None = _UNSET,  # type: ignore[assignment]
-    ) -> None:
-        """Update one or more of a sample's own fields in place, in a single write.
-
-        Only the fields actually passed are changed -- `name` and every
-        other field not accepted by this method is left untouched (use
-        `rename_sample` to change `name`). Passing `None` for `description`
-        clears that field (distinct from not passing it at all, which
-        leaves it as-is). `metadata`, when passed, replaces the entire
-        `[metadata]` table rather than merging into it -- callers that want
-        to change one key should read the sample's current `metadata` first.
-
-        Validates the updated sample before writing, so a call that would
-        produce an invalid sample fails loudly rather than silently
+        Validates `representation` before writing, so a call that would
+        produce an invalid representation fails loudly rather than silently
         corrupting the file.
 
         Args:
-            sample_id: The sample's stable id.
-            description: The new description text, `None` to clear it, or
-                omitted to leave it unchanged.
-            metadata: The new `metadata` table, replacing it wholesale, or
-                omitted to leave it unchanged.
+            sample_id: The owning sample's id.
+            representation: The representation to persist, with `id`
+                matching an existing one under `sample_id`.
+
+        Raises:
+            FileNotFoundError: If no such sample exists, or no
+                representation with this `id` exists yet under it -- use
+                `create_representation` for a new one.
         """
-        sample_path = self._find_sample_dir(sample_id) / SAMPLE_FILENAME
-        sample = _load_model(Sample, _load_raw(sample_path), metadata_model=self._sample_metadata)
+        representation_path = self._find_representation_path(sample_id, representation.id)
+        representation.metadata = self._representation_metadata.model_validate(
+            representation.metadata
+        )
+        _write_model(representation_path, representation)
 
-        if description is not _UNSET:
-            sample.description = description
-        if metadata is not _UNSET:
-            sample.metadata = self._sample_metadata.model_validate(metadata or {})
+    @contextmanager
+    def edit_sample(self, sample_id: str) -> Iterator[Sample]:
+        """Load a sample, yield it for in-place mutation, and `save_sample` it on clean exit.
 
-        _write_model(sample_path, sample)
+        Equivalent to `sample = registry.load_sample(sample_id)` followed by
+        `registry.save_sample(sample)` after the `with` block, except the
+        save is skipped if the block raises -- so a half-finished edit never
+        reaches disk.
 
-    def set_representation_fields(
-        self,
-        sample_id: str,
-        representation_id: str,
-        *,
-        path: str = _UNSET,  # type: ignore[assignment]
-        depends_on: list[str] | None = _UNSET,  # type: ignore[assignment]
-        metadata: dict[str, Any] | None = _UNSET,  # type: ignore[assignment]
-    ) -> None:
-        """Update one or more of a representation's own fields in place, in a single write.
+        Args:
+            sample_id: The sample's stable id.
 
-        Only the fields actually passed are changed -- `name` and every
-        other field not accepted by this method is left untouched (use
-        `rename_representation` to change `name`). `path` has no "clear"
-        option since it's required. `depends_on`, when passed, replaces the
-        entire list (`None` clears it). `metadata`, when passed, replaces
-        the entire `[metadata]` table rather than merging into it --
-        callers that want to change one key should read the
-        representation's current `metadata` first.
+        Yields:
+            The loaded sample, mutable in place.
+        """
+        sample = self.load_sample(sample_id)
+        yield sample
+        self.save_sample(sample)
 
-        Validates the updated representation before writing, so a call that
-        would produce an invalid representation fails loudly rather than
-        silently corrupting the file.
+    @contextmanager
+    def edit_representation(
+        self, sample_id: str, representation_id: str
+    ) -> Iterator[Representation]:
+        """Load a representation, yield it for in-place mutation, `save_representation` on exit.
+
+        Equivalent to `representation = registry.load_representation(sample_id,
+        representation_id)` followed by `registry.save_representation(sample_id,
+        representation)` after the `with` block, except the save is skipped
+        if the block raises -- so a half-finished edit never reaches disk.
 
         Args:
             sample_id: The owning sample's id.
             representation_id: The representation's stable id.
-            path: The new filesystem path, or omitted to leave it unchanged.
-            depends_on: The new list of ids of other representations of the
-                same sample that this one was produced from, `None` to
-                clear it, or omitted to leave it unchanged.
-            metadata: The new `metadata` table, replacing it wholesale, or
-                omitted to leave it unchanged.
+
+        Yields:
+            The loaded representation, mutable in place.
         """
-        representation_path = self._find_representation_path(sample_id, representation_id)
-        representation = _load_model(
-            Representation,
-            _load_raw(representation_path),
-            metadata_model=self._representation_metadata,
-        )
-
-        if path is not _UNSET:
-            representation.path = path
-        if depends_on is not _UNSET:
-            representation.depends_on = depends_on
-        if metadata is not _UNSET:
-            representation.metadata = self._representation_metadata.model_validate(metadata or {})
-
-        _write_model(representation_path, representation)
+        representation = self.load_representation(sample_id, representation_id)
+        yield representation
+        self.save_representation(sample_id, representation)
 
 
 def create_registry(

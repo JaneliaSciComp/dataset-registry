@@ -34,6 +34,7 @@
         <tr>
             <th>Name</th>
             <th>Path</th>
+            <th>Description</th>
             <th>Depends on</th>
         </tr>
     </thead>
@@ -43,6 +44,7 @@
             onclick="window.location='/samples/{{ sample.id }}/representations/{{ representation.id }}'">
             <td>{{ representation.name }}</td>
             <td>{{ representation.path }}</td>
+            <td>{{ representation.description or "" }}</td>
             <td>{{ representation.depends_on_names }}</td>
         </tr>
         {% endfor %}

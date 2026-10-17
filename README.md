@@ -68,7 +68,8 @@ If the data later moves, update `path` in place -- every caller that loads
 this representation by id picks up the new location automatically:
 
 ```python
-registry.set_representation_fields(sample_id, representation_id, path="/nrs/shroff/raw.tif")
+with registry.edit_representation(sample_id, representation_id) as representation:
+    representation.path = "/nrs/shroff/raw.tif"
 ```
 
 ### Git URL vs. local directory: two workflows
