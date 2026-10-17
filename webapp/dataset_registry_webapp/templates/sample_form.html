@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="breadcrumb"><a href="/samples">&lt; all samples</a></div>
+<form class="edit-form card" method="post" action="{{ action }}">
+    <label for="name">Name</label>
+    <input type="text" id="name" name="name" value="{{ sample.name if sample else '' }}" required>
+
+    <label for="description">Description</label>
+    <textarea id="description" name="description" rows="2">{{ sample.description or "" if sample else "" }}</textarea>
+
+    <label>Metadata</label>
+    {% include "_metadata_rows.html" %}
+
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+    <div class="form-buttons">
+        <button type="submit" class="primary">Save</button>
+        <a class="button secondary" href="{{ cancel_url }}">Cancel</a>
+    </div>
+</form>
+{% endblock %}

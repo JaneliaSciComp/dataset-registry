@@ -18,8 +18,6 @@ jobs:
     env:
       # disable resyncing on uv run
       UV_NO_SYNC: "1"
-      # runners have no Janelia network access or pre-populated share cache
-      JANELIA_PATHLIB_NO_FETCH: "1"
     strategy:
       fail-fast: false
       # OS-specific bugs are almost always OS/driver related and Python-version-

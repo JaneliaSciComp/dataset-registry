@@ -202,6 +202,43 @@ def test_rename_representation_changes_name_without_moving_file(tmp_path):
     assert representation.name == "Raw scan"
 
 
+def test_set_representation_fields_updates_depends_on(tmp_path):
+    registry = Registry(tmp_path)
+    sample_id = registry.create_sample("Embryo A")
+    raw_id = registry.create_representation(sample_id, "Raw scan", path="a")
+    seg_id = registry.create_representation(sample_id, "Cellpose v3", path="b")
+
+    registry.set_representation_fields(sample_id, seg_id, depends_on=[raw_id])
+
+    representation = registry.load_representation(sample_id, seg_id)
+    assert representation.depends_on == [raw_id]
+
+
+def test_set_representation_fields_clears_depends_on_with_none(tmp_path):
+    registry = Registry(tmp_path)
+    sample_id = registry.create_sample("Embryo A")
+    raw_id = registry.create_representation(sample_id, "Raw scan", path="a")
+    seg_id = registry.create_representation(sample_id, "Cellpose v3", path="b", depends_on=[raw_id])
+
+    registry.set_representation_fields(sample_id, seg_id, depends_on=None)
+
+    representation = registry.load_representation(sample_id, seg_id)
+    assert representation.depends_on is None
+
+
+def test_set_representation_fields_leaves_depends_on_unchanged_when_omitted(tmp_path):
+    registry = Registry(tmp_path)
+    sample_id = registry.create_sample("Embryo A")
+    raw_id = registry.create_representation(sample_id, "Raw scan", path="a")
+    seg_id = registry.create_representation(sample_id, "Cellpose v3", path="b", depends_on=[raw_id])
+
+    registry.set_representation_fields(sample_id, seg_id, path="c")
+
+    representation = registry.load_representation(sample_id, seg_id)
+    assert representation.depends_on == [raw_id]
+    assert representation.path == "c"
+
+
 def test_create_sample_generates_a_unique_id_and_is_loadable(tmp_path):
     registry = Registry(tmp_path)
 

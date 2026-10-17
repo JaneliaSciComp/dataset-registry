@@ -10,19 +10,19 @@ _BROWSE_PORT = 5006
 
 def _browse(location: str) -> None:
     try:
-        import panel
+        import uvicorn
     except ImportError as e:
         raise SystemExit(
             "the 'browse' extra is required for this command: "
             "pip install 'dataset-registry[browse]'"
         ) from e
 
-    from dataset_registry._browser import browse
+    from dataset_registry_webapp import create_app
 
     registry = Registry(location)
-    pages = browse(registry)
+    app = create_app(registry)
     webbrowser.open(f"http://localhost:{_BROWSE_PORT}/samples")
-    panel.serve(pages, port=_BROWSE_PORT, show=False)
+    uvicorn.run(app, port=_BROWSE_PORT)
 
 
 def main() -> None:

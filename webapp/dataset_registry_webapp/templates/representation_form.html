@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="breadcrumb"><a href="/samples/{{ sample.id }}">&lt; {{ sample.name }}</a></div>
+<form class="edit-form card" method="post" action="{{ action }}">
+    <label for="name">Name</label>
+    <input type="text" id="name" name="name" value="{{ representation.name if representation else '' }}" required>
+
+    <label for="path">Path</label>
+    <input type="text" id="path" name="path" value="{{ representation.path if representation else '' }}" required>
+
+    <label for="depends_on">Depends on</label>
+    <select id="depends_on" name="depends_on" multiple size="{{ [other_representations|length, 4]|min }}">
+        {% for other in other_representations %}
+        <option value="{{ other.id }}" {% if other.id in selected_depends_on %}selected{% endif %}>
+            {{ other.name }}
+        </option>
+        {% endfor %}
+    </select>
+
+    <label>Metadata</label>
+    {% include "_metadata_rows.html" %}
+
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+    <div class="form-buttons">
+        <button type="submit" class="primary">Save</button>
+        <a class="button secondary" href="{{ cancel_url }}">Cancel</a>
+    </div>
+</form>
+{% endblock %}

@@ -1,0 +1,187 @@
+:root {
+    --accent: #8b3fe0;
+    --border: #ddd;
+    --text: #222;
+    --muted: #666;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    color: var(--text);
+    margin: 0;
+    background: #fafafa;
+}
+
+header.app-header {
+    background: var(--accent);
+    color: white;
+    padding: 14px 24px;
+}
+
+header.app-header a {
+    color: white;
+    text-decoration: none;
+}
+
+header.app-header h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+main {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px 24px 60px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+th, td {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+th {
+    background: #f1ecfa;
+    font-weight: 600;
+}
+
+tr.clickable-row {
+    cursor: pointer;
+}
+
+tr.clickable-row:hover {
+    background: #f7f4fc;
+}
+
+.card {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.card dt {
+    font-weight: 600;
+    margin-top: 10px;
+}
+
+.card dt:first-child {
+    margin-top: 0;
+}
+
+.card dd {
+    margin: 2px 0 0;
+    color: var(--text);
+}
+
+.muted {
+    color: var(--muted);
+    font-style: italic;
+}
+
+.actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+button, .button {
+    font: inherit;
+    padding: 7px 14px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: white;
+    cursor: pointer;
+    text-decoration: none;
+    color: var(--text);
+    display: inline-block;
+}
+
+button.primary, .button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+button.secondary, .button.secondary {
+    background: white;
+}
+
+form.edit-form label {
+    display: block;
+    font-weight: 600;
+    margin-top: 12px;
+}
+
+form.edit-form input[type="text"],
+form.edit-form textarea,
+form.edit-form select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    margin-top: 4px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font: inherit;
+}
+
+form.edit-form textarea {
+    resize: vertical;
+}
+
+.metadata-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+    align-items: center;
+}
+
+.metadata-row input[type="text"] {
+    margin-top: 0;
+}
+
+.metadata-row input.key {
+    flex: 0 0 180px;
+}
+
+.metadata-row input.value {
+    flex: 1;
+}
+
+.metadata-row button.remove {
+    flex: 0 0 auto;
+    padding: 6px 10px;
+}
+
+.form-buttons {
+    margin-top: 18px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.breadcrumb {
+    margin-bottom: 14px;
+    font-size: 14px;
+}
+
+.breadcrumb a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.error {
+    color: #b00020;
+    margin-top: 10px;
+}
