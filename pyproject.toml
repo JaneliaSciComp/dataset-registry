@@ -53,6 +53,11 @@ repository = "https://github.com/JaneliaSciComp/dataset_registry"
 # Every dependency gets a lower *and* an upper bound; see CONTRIBUTING.md.
 test = [
     "dataset-registry[browse]",
+    # starlette.testclient wants httpx2 as of starlette 1.2.0, but falls back
+    # to httpx on older versions -- our fastapi floor resolves an older
+    # starlette that only knows about httpx, so both are needed to cover the
+    # full range of resolvable starlette/fastapi versions.
+    "httpx>=0.28,<1",
     "httpx2>=2.0,<3",
     "pytest>=9.1,<10",
     "pytest-cov>=7.1,<8",
