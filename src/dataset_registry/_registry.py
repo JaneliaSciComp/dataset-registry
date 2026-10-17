@@ -562,16 +562,18 @@ class Registry:
         representation_id: str,
         *,
         path: str = _UNSET,  # type: ignore[assignment]
+        depends_on: list[str] | None = _UNSET,  # type: ignore[assignment]
         metadata: dict[str, Any] | None = _UNSET,  # type: ignore[assignment]
     ) -> None:
         """Update one or more of a representation's own fields in place, in a single write.
 
-        Only the fields actually passed are changed -- `name`, `depends_on`,
-        and every other field not accepted by this method is left untouched
-        (use `rename_representation` to change `name`). `path` has no
-        "clear" option since it's required. `metadata`, when passed,
-        replaces the entire `[metadata]` table rather than merging into it
-        -- callers that want to change one key should read the
+        Only the fields actually passed are changed -- `name` and every
+        other field not accepted by this method is left untouched (use
+        `rename_representation` to change `name`). `path` has no "clear"
+        option since it's required. `depends_on`, when passed, replaces the
+        entire list (`None` clears it). `metadata`, when passed, replaces
+        the entire `[metadata]` table rather than merging into it --
+        callers that want to change one key should read the
         representation's current `metadata` first.
 
         Validates the updated representation before writing, so a call that
@@ -582,6 +584,9 @@ class Registry:
             sample_id: The owning sample's id.
             representation_id: The representation's stable id.
             path: The new filesystem path, or omitted to leave it unchanged.
+            depends_on: The new list of ids of other representations of the
+                same sample that this one was produced from, `None` to
+                clear it, or omitted to leave it unchanged.
             metadata: The new `metadata` table, replacing it wholesale, or
                 omitted to leave it unchanged.
         """
@@ -594,6 +599,8 @@ class Registry:
 
         if path is not _UNSET:
             representation.path = path
+        if depends_on is not _UNSET:
+            representation.depends_on = depends_on
         if metadata is not _UNSET:
             representation.metadata = self._representation_metadata.model_validate(metadata or {})
 
