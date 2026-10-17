@@ -19,11 +19,9 @@ def _write_sample(registry_root: Path, dirname: str, **fields) -> Path:
     return sample_dir
 
 
-def _write_representation(
-    registry_root: Path, sample_dirname: str, filename: str, **fields
-) -> Path:
-    path = registry_root / sample_dirname / "representations" / f"{filename}.toml"
-    _write_toml(path, {"id": filename, "name": filename, **fields})
+def _write_representation(registry_root: Path, sample_dirname: str, dirname: str, **fields) -> Path:
+    path = registry_root / sample_dirname / dirname / "representation.toml"
+    _write_toml(path, {"id": dirname, "name": dirname, **fields})
     return path
 
 
@@ -76,10 +74,10 @@ def test_load_representation_raises_when_missing(tmp_path):
         registry.load_representation("SLS161", "does-not-exist")
 
 
-def test_load_representation_finds_a_representation_whose_id_does_not_match_its_filename(tmp_path):
+def test_load_representation_finds_a_representation_whose_id_does_not_match_its_directory(tmp_path):
     _write_sample(tmp_path, "SLS161")
     _write_toml(
-        tmp_path / "SLS161" / "representations" / "some-file.toml",
+        tmp_path / "SLS161" / "some-directory" / "representation.toml",
         {"id": "elsewhere", "name": "Raw scan", "path": "a"},
     )
     registry = Registry(tmp_path)
@@ -190,7 +188,7 @@ def test_save_sample_persists_a_renamed_sample_without_moving_directory(tmp_path
     assert reloaded.name == "Embryo A"
 
 
-def test_save_representation_persists_a_renamed_representation_without_moving_file(tmp_path):
+def test_save_representation_persists_a_renamed_representation_without_moving_directory(tmp_path):
     _write_sample(tmp_path, "SLS161")
     _write_representation(tmp_path, "SLS161", "raw", path="a")
     registry = Registry(tmp_path)
@@ -199,7 +197,7 @@ def test_save_representation_persists_a_renamed_representation_without_moving_fi
     representation.name = "Raw scan"
     registry.save_representation("SLS161", representation)
 
-    representation_path = tmp_path / "SLS161" / "representations" / "raw.toml"
+    representation_path = tmp_path / "SLS161" / "raw" / "representation.toml"
     assert representation_path.is_file()
     reloaded = registry.load_representation("SLS161", "raw")
     assert reloaded.id == "raw"

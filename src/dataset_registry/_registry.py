@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from dataset_registry._schema import FreeformMetadata, RegistryInfo, Representation, Sample
 
 SAMPLE_FILENAME = "sample.toml"
-REPRESENTATIONS_DIRNAME = "representations"
+REPRESENTATION_FILENAME = "representation.toml"
 REGISTRY_INFO_FILENAME = "registry.toml"
 
 _ID_GENERATION_ATTEMPTS = 100
@@ -60,6 +60,66 @@ def _write_model(path: Path, model: BaseModel) -> None:
     raw = model.model_dump(exclude_none=True)
     with path.open("wb") as f:
         tomli_w.dump(raw, f)
+
+
+class _RecordKind:
+    """Groups what's different between samples and representations, so the generic
+    find/list/load/save/create logic in `Registry` can be written once and shared.
+
+    A "record" is a directory somewhere under `parent_dir`, holding one
+    `filename` TOML file whose own `id` field (not its directory's name) is
+    the source of truth for its identity -- same shape for both kinds, just
+    at a different place in the tree: `<registry root>/*/sample.toml` for
+    samples, `<sample dir>/*/representation.toml` for representations. A
+    record's directory can hold more than its own TOML file (e.g. a
+    virtual-zarr manifest, a thumbnail) -- `_RecordKind` only ever touches
+    `filename` within it.
+    """
+
+    def __init__(
+        self,
+        model_cls: type[Sample] | type[Representation],
+        metadata_model: type[BaseModel],
+        parent_dir: Path,
+        filename: str,
+    ) -> None:
+        self.model_cls = model_cls
+        self.metadata_model = metadata_model
+        self.parent_dir = parent_dir
+        """Directory holding one subdirectory per record of this kind."""
+        self.filename = filename
+        """Name of the TOML file inside each record's own directory."""
+
+    def _file_paths(self) -> list[Path]:
+        return sorted(self.parent_dir.glob(f"*/{self.filename}"))
+
+    def find_dir(self, record_id: str, *, not_found_message: str) -> Path:
+        """The directory of the existing record whose own `id` field is `record_id`.
+
+        Always scans `parent_dir` rather than trusting a directory name to
+        carry identity -- see the class docstring.
+
+        Raises:
+            FileNotFoundError: If no `filename` under a subdirectory of
+                `parent_dir` has `id` equal to `record_id`.
+        """
+        for candidate in self._file_paths():
+            if _load_raw(candidate).get("id") == record_id:
+                return candidate.parent
+        raise FileNotFoundError(not_found_message)
+
+    def existing_ids(self) -> set[str]:
+        """The `id` field of every `filename` under a subdirectory of `parent_dir`."""
+        return {_load_raw(path)["id"] for path in self._file_paths()}
+
+    def load(self, record_dir: Path) -> Any:
+        """`_load_model` for the `filename` inside `record_dir`."""
+        raw = _load_raw(record_dir / self.filename)
+        return _load_model(self.model_cls, raw, metadata_model=self.metadata_model)
+
+    def write(self, record_dir: Path, model: BaseModel) -> None:
+        """`_write_model` for `model` to the `filename` inside `record_dir`."""
+        _write_model(record_dir / self.filename, model)
 
 
 def _slugify(name: str) -> str:
@@ -181,19 +241,25 @@ class Registry:
 
     `location` is either an existing local directory (used directly, no
     cloning) or a git URL (shallow-cloned, or reused from a per-user cache).
-    Every load/create/rename/set call below is scoped to this one resolved
+    Every load/create/save/edit call below is scoped to this one resolved
     directory.
 
         <path>/
           <sample directory>/
             sample.toml
-            representations/
-              <representation file>.toml
+            <representation directory>/
+              representation.toml
               ...
+            ...
 
-    Directory and file names carry no meaning of their own -- `id`/`name`
-    are always read from a `sample.toml`/representation TOML's own fields,
-    never inferred from where it lives on disk.
+    Directory names carry no meaning of their own -- `id`/`name` are always
+    read from a `sample.toml`/`representation.toml`'s own fields, never
+    inferred from where it lives on disk. Each is found by scanning for its
+    own filename, not by directory layout -- a sample's directory can hold
+    other subdirectories that aren't representations (they just won't have
+    a `representation.toml` inside), and a representation's directory can
+    hold more than its own `representation.toml` (e.g. a virtual-zarr
+    manifest, a thumbnail) -- this package only ever touches that one file.
     """
 
     path: Path
@@ -249,11 +315,27 @@ class Registry:
             return f"Registry(title={title!r}, path={str(self.path)!r})"
         return f"Registry(path={str(self.path)!r})"
 
-    def _sample_dirs(self) -> list[Path]:
-        return sorted(p.parent for p in self.path.glob(f"*/{SAMPLE_FILENAME}"))
+    def _sample_kind(self) -> _RecordKind:
+        """The `_RecordKind` for samples: registry-root subdirectories holding `sample.toml`."""
+        return _RecordKind(
+            Sample,
+            self._sample_metadata,
+            parent_dir=self.path,
+            filename=SAMPLE_FILENAME,
+        )
+
+    def _representation_kind(self, sample_id: str) -> _RecordKind:
+        """The `_RecordKind` for one sample's representations, holding `representation.toml`."""
+        sample_dir = self._find_sample_dir(sample_id)
+        return _RecordKind(
+            Representation,
+            self._representation_metadata,
+            parent_dir=sample_dir,
+            filename=REPRESENTATION_FILENAME,
+        )
 
     def _find_sample_dir(self, sample_id: str) -> Path:
-        """Find the directory whose sample has `sample_id`.
+        """Find the directory holding the `sample.toml` whose sample has `sample_id`.
 
         A sample's directory name carries no meaning of its own -- `id` is
         only ever read from `sample.toml`'s own `id` field -- so this always
@@ -262,51 +344,36 @@ class Registry:
         Raises:
             FileNotFoundError: If no sample with this id exists.
         """
-        for sample_dir in self._sample_dirs():
-            raw = _load_raw(sample_dir / SAMPLE_FILENAME)
-            if raw.get("id") == sample_id:
-                return sample_dir
-        raise FileNotFoundError(f"no sample with id {sample_id!r} found under {self.path}")
+        return self._sample_kind().find_dir(
+            sample_id, not_found_message=f"no sample with id {sample_id!r} found under {self.path}"
+        )
 
-    def _find_representation_path(self, sample_id: str, representation_id: str) -> Path:
-        """Find the file whose representation has `representation_id`.
+    def _find_representation_dir(self, sample_id: str, representation_id: str) -> Path:
+        """Find the directory holding the `representation.toml` for `representation_id`.
 
-        Same reasoning as `_find_sample_dir`: a representation's filename
-        carries no meaning of its own, so this always scans every
+        Same reasoning as `_find_sample_dir`: a representation's directory
+        name carries no meaning of its own, so this always scans every
         representation belonging to the sample.
 
         Raises:
             FileNotFoundError: If no such sample, or no representation with
                 this id under it, exists.
         """
-        sample_dir = self._find_sample_dir(sample_id)
-        representations_dir = sample_dir / REPRESENTATIONS_DIRNAME
-
-        for representation_path in sorted(representations_dir.glob("*.toml")):
-            raw = _load_raw(representation_path)
-            if raw.get("id") == representation_id:
-                return representation_path
-
-        raise FileNotFoundError(
-            f"no representation with id {representation_id!r} found for sample "
-            f"{sample_id!r} under {self.path}"
+        return self._representation_kind(sample_id).find_dir(
+            representation_id,
+            not_found_message=(
+                f"no representation with id {representation_id!r} found for sample "
+                f"{sample_id!r} under {self.path}"
+            ),
         )
 
     def generate_sample_id(self, name: str) -> str:
         """A slugified-`name`-plus-random-word id not already used as a sample id here."""
-        existing_ids = {
-            _load_raw(sample_dir / SAMPLE_FILENAME)["id"] for sample_dir in self._sample_dirs()
-        }
-        return _generate_id(name, existing_ids)
+        return _generate_id(name, self._sample_kind().existing_ids())
 
     def generate_representation_id(self, sample_id: str, name: str) -> str:
         """A slugified-`name`-plus-random-word id, unique among this sample's representations."""
-        sample_dir = self._find_sample_dir(sample_id)
-        representations_dir = sample_dir / REPRESENTATIONS_DIRNAME
-        existing_ids = {
-            _load_raw(path)["id"] for path in sorted(representations_dir.glob("*.toml"))
-        }
-        return _generate_id(name, existing_ids)
+        return _generate_id(name, self._representation_kind(sample_id).existing_ids())
 
     def load_sample(self, sample_id: str) -> Sample:
         """Load one sample by id.
@@ -322,8 +389,7 @@ class Registry:
             FileNotFoundError: If no sample with this id exists.
         """
         sample_dir = self._find_sample_dir(sample_id)
-        raw = _load_raw(sample_dir / SAMPLE_FILENAME)
-        sample: Sample = _load_model(Sample, raw, metadata_model=self._sample_metadata)
+        sample: Sample = self._sample_kind().load(sample_dir)
         return sample
 
     def load_representation(self, sample_id: str, representation_id: str) -> Representation:
@@ -340,10 +406,9 @@ class Registry:
         Raises:
             FileNotFoundError: If no such sample or representation exists.
         """
-        representation_path = self._find_representation_path(sample_id, representation_id)
-        raw = _load_raw(representation_path)
-        representation: Representation = _load_model(
-            Representation, raw, metadata_model=self._representation_metadata
+        representation_dir = self._find_representation_dir(sample_id, representation_id)
+        representation: Representation = self._representation_kind(sample_id).load(
+            representation_dir
         )
         return representation
 
@@ -367,9 +432,7 @@ class Registry:
         Returns:
             Sample ids, sorted, for every subdirectory containing a `sample.toml`.
         """
-        return sorted(
-            _load_raw(sample_dir / SAMPLE_FILENAME)["id"] for sample_dir in self._sample_dirs()
-        )
+        return sorted(self._sample_kind().existing_ids())
 
     def list_representations(self, sample_id: str) -> list[str]:
         """The ids of every representation belonging to one sample.
@@ -380,9 +443,7 @@ class Registry:
         Returns:
             Representation ids, sorted.
         """
-        sample_dir = self._find_sample_dir(sample_id)
-        representations_dir = sample_dir / REPRESENTATIONS_DIRNAME
-        return sorted(_load_raw(path)["id"] for path in representations_dir.glob("*.toml"))
+        return sorted(self._representation_kind(sample_id).existing_ids())
 
     def find_samples_by_name(self, name: str) -> list[Sample]:
         """Every sample in this registry whose `name` matches exactly.
@@ -447,7 +508,7 @@ class Registry:
             description=description,
             metadata=self._sample_metadata.model_validate(metadata or {}),
         )
-        _write_model(sample_dir / SAMPLE_FILENAME, sample)
+        self._sample_kind().write(sample_dir, sample)
         return sample_id
 
     def create_representation(
@@ -476,8 +537,8 @@ class Registry:
         """
         representation_id = self.generate_representation_id(sample_id, name)
         sample_dir = self._find_sample_dir(sample_id)
-        representations_dir = sample_dir / REPRESENTATIONS_DIRNAME
-        representations_dir.mkdir(exist_ok=True)
+        representation_dir = sample_dir / representation_id
+        representation_dir.mkdir()
 
         representation = Representation(
             id=representation_id,
@@ -487,8 +548,7 @@ class Registry:
             depends_on=depends_on,
             metadata=self._representation_metadata.model_validate(metadata or {}),
         )
-        representation_path = representations_dir / f"{representation_id}.toml"
-        _write_model(representation_path, representation)
+        self._representation_kind(sample_id).write(representation_dir, representation)
         return representation_id
 
     def save_sample(self, sample: Sample) -> None:
@@ -512,9 +572,9 @@ class Registry:
             FileNotFoundError: If no sample with this `id` exists yet --
                 use `create_sample` for a new one.
         """
-        sample_path = self._find_sample_dir(sample.id) / SAMPLE_FILENAME
+        sample_dir = self._find_sample_dir(sample.id)
         sample.metadata = self._sample_metadata.model_validate(sample.metadata)
-        _write_model(sample_path, sample)
+        self._sample_kind().write(sample_dir, sample)
 
     def save_representation(self, sample_id: str, representation: Representation) -> None:
         """Write `representation` to disk, overwriting its existing file for its `id`.
@@ -541,11 +601,11 @@ class Registry:
                 representation with this `id` exists yet under it -- use
                 `create_representation` for a new one.
         """
-        representation_path = self._find_representation_path(sample_id, representation.id)
+        representation_dir = self._find_representation_dir(sample_id, representation.id)
         representation.metadata = self._representation_metadata.model_validate(
             representation.metadata
         )
-        _write_model(representation_path, representation)
+        self._representation_kind(sample_id).write(representation_dir, representation)
 
     @contextmanager
     def edit_sample(self, sample_id: str) -> Iterator[Sample]:

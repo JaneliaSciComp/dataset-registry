@@ -10,16 +10,18 @@ code refers to a stable id; only the registry's TOML files need to change
 when a path moves.
 
 A registry is a directory of plain TOML files (usually kept in git), one
-subdirectory per **sample**, each with one TOML file per **representation**
-(a named path to a piece of data belonging to that sample):
+subdirectory per **sample**, each with one subdirectory per
+**representation** (a named path to a piece of data belonging to that
+sample):
 
 ```
 <registry root>/
   <sample directory>/
     sample.toml
-    representations/
-      <representation file>.toml
+    <representation directory>/
+      representation.toml
       ...
+    ...
 ```
 
 Both samples and representations carry a free-form `metadata` table, so a
