@@ -28,7 +28,6 @@ classifiers = [
 dynamic = ["version"]
 dependencies = [
     "coolname>=4.0,<6",
-    "janelia-pathlib>=0.1,<0.2",
     "platformdirs>=4.0,<5",
     "pydantic>=2.0,<3",
     "tomli-w>=1.0,<2",
@@ -117,14 +116,7 @@ convention = "google"
 minversion = "7.0"
 testpaths = ["tests"]
 pythonpath = ["tests"]
-filterwarnings = [
-    "error",
-    # Tests run with JANELIA_PATHLIB_NO_FETCH=1 (no network access assumed)
-    # and no pre-populated share cache, so janelia-pathlib always warns that
-    # paths won't be translated -- harmless here, since test paths are never
-    # real Janelia shares.
-    "ignore:No share data available.*:UserWarning:janelia_pathlib",
-]
+filterwarnings = ["error"]
 
 # https://mypy.readthedocs.io/en/stable/config_file.html
 [tool.mypy]
