@@ -21,7 +21,7 @@ test-cov:
 lint:
     uv run pre-commit run --all-files
 
-# run type checking
+# run type checking (via pre-commit, so stub/type-dep handling matches CI)
 typecheck:
     uv run pre-commit run mypy --all-files
 

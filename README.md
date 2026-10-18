@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/JaneliaSciComp/dataset_registry/actions/workflows/ci.yaml/badge.svg)](https://github.com/JaneliaSciComp/dataset_registry/actions/workflows/ci.yaml)
 [![codecov](https://codecov.io/gh/JaneliaSciComp/dataset_registry/branch/main/graph/badge.svg)](https://codecov.io/gh/JaneliaSciComp/dataset_registry)
+[![PyPI](https://img.shields.io/pypi/v/dataset-registry.svg)](https://pypi.org/project/dataset-registry)
 
 A version-controlled way to keep track of dataset paths and refer to them by
 name in code. Data moves -- to a new drive, a new fileshare, a new cluster --

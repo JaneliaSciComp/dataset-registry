@@ -176,8 +176,10 @@ locally before opening a pull request.
 ## Releasing
 
 Releases are triggered by pushing a version tag. `setuptools-scm` derives the
-version from the tag, and CI creates a GitHub release.
+version from the tag, and CI builds and publishes to PyPI.
 
 ```bash
 just release v0.1.0
 ```
+Publishing uses [trusted publishing](https://docs.pypi.org/trusted-publishers/),
+which must be configured once on PyPI for this project.
