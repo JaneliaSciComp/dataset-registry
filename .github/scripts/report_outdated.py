@@ -1,10 +1,11 @@
 """Report dependencies whose newest release is excluded by its declared bound.
 
-Dependabot keeps `uv.lock` current, but only within the constraints written in
-`pyproject.toml`: a dependency capped at `<3` is never offered a 3.x update.
-This script finds exactly the complement of that -- releases that exist but are
-forbidden by the declared specifier -- so the resulting issue never duplicates
-what is already sitting in a Dependabot pull request.
+The `upgrade` job in the same workflow keeps `uv.lock` current, but only
+within the constraints written in `pyproject.toml`: a dependency capped at
+`<3` is never moved to a 3.x release by `uv lock --upgrade`. This script finds
+exactly the complement of that -- releases that exist but are forbidden by the
+declared specifier -- so the resulting issue never duplicates what that job
+already covers.
 
 Writes a markdown bullet list to stdout; empty output means nothing to report.
 """
@@ -88,8 +89,9 @@ def main() -> None:
     for name, resolved, latest in outdated_entries():
         specifier = specifiers.get(canonical(name))
 
-        # Unknown, or declared with no constraint at all: Dependabot can reach
-        # the new version by itself, so it is not this report's business.
+        # Unknown, or declared with no constraint at all: `uv lock --upgrade`
+        # can reach the new version by itself, so it is not this report's
+        # business.
         if specifier is None or not str(specifier):
             continue
 
@@ -100,8 +102,8 @@ def main() -> None:
         except InvalidVersion:
             continue
 
-        # If the newest release satisfies the declared bound, Dependabot can
-        # reach it on its own and it does not belong in this report.
+        # If the newest release satisfies the declared bound, `uv lock
+        # --upgrade` can reach it on its own and it does not belong here.
         if not is_allowed:
             blocked.append((name, resolved, latest, str(specifier)))
 

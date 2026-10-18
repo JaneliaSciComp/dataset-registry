@@ -1,10 +1,16 @@
 name: Outdated dependencies
 
-# Dependabot keeps uv.lock current, but only within the version constraints in
-# pyproject.toml: a dependency capped at `<3` will never be offered a 3.x
-# update. This job reports what is available beyond those bounds so that major
-# upgrades are a visible, deliberate decision instead of something you find out
-# about years later. It only reports — it never changes anything.
+# Two independent jobs, both scheduled monthly:
+#
+# - upgrade: runs `uv lock --upgrade`, which only ever moves versions within
+#   the bounds declared in pyproject.toml, and opens/updates a pull request
+#   with whatever moved. Force-pushes the same branch each run rather than
+#   piling up duplicates, so there is always at most one open PR from this job.
+# - report: lists releases that exist but fall *outside* those bounds -- e.g.
+#   a dependency capped at `<3` with a 3.x release available -- so a major
+#   upgrade is a visible, deliberate decision (widen the bound by hand, then
+#   let the next `upgrade` run pick it up) instead of something found out
+#   about years later. This job only reports; it never changes anything.
 
 on:
   schedule:
@@ -17,6 +23,50 @@ permissions:
   issues: write
 
 jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Upgrade within declared bounds
+        run: uv lock --upgrade
+
+      - name: Open or update the upgrade pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet -- uv.lock; then
+            echo "uv.lock already up to date within current bounds."
+            exit 0
+          fi
+
+          BRANCH="deps/auto-upgrade"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add uv.lock
+          git commit -m "build(deps): upgrade within declared bounds"
+          git push --force origin "$BRANCH"
+
+          TITLE="Upgrade dependencies within declared bounds"
+          BODY="Ran \`uv lock --upgrade\`. Only moves versions within the \
+          bounds already declared in \`pyproject.toml\` -- review the \`uv.lock\` \
+          diff and merge if the test matrix passes."
+
+          EXISTING=$(gh pr list --state open --head "$BRANCH" --json number --jq '.[0].number')
+          if [ -n "$EXISTING" ]; then
+            gh pr edit "$EXISTING" --title "$TITLE" --body "$BODY"
+          else
+            gh pr create --title "$TITLE" --body "$BODY" --head "$BRANCH" --base main
+          fi
+
   report:
     runs-on: ubuntu-latest
     steps:
@@ -27,7 +77,7 @@ jobs:
           enable-cache: true
 
       # Reports only releases that the bounds in pyproject.toml forbid, so this
-      # never repeats what is already in an open Dependabot pull request.
+      # never repeats what the `upgrade` job above already covers.
       - name: Check for bound-blocked releases
         id: check
         run: |
@@ -52,20 +102,25 @@ jobs:
             echo
             cat outdated.txt
             echo
-            echo "Dependabot cannot offer these, because they fall outside the"
-            echo "declared constraints. Taking one means widening the bound in"
-            echo "\`pyproject.toml\` by hand, running \`just upgrade\`, and making"
-            echo "whatever code changes the new version requires."
+            echo "The \`upgrade\` job in this same workflow cannot offer these,"
+            echo "because they fall outside the declared constraints. Taking one"
+            echo "means widening the bound in \`pyproject.toml\` by hand, running"
+            echo "\`just upgrade\`, and making whatever code changes the new"
+            echo "version requires."
             echo
             echo "Anything **not** listed here that has an update available is"
-            echo "already covered by a Dependabot pull request."
+            echo "already covered by the next scheduled \`upgrade\` run."
             echo
             echo "_Updated by the \`outdated\` workflow; close it if these bounds are deliberate._"
           } > body.md
 
-          EXISTING=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number')
-          if [ -n "$EXISTING" ]; then
-            gh issue edit "$EXISTING" --body-file body.md
+          EXISTING=$(gh issue list --state all --search "$TITLE in:title" --json number,state --jq '.[0]')
+          NUMBER=$(echo "$EXISTING" | jq -r '.number // empty')
+          if [ -n "$NUMBER" ]; then
+            if [ "$(echo "$EXISTING" | jq -r '.state')" = "CLOSED" ]; then
+              gh issue reopen "$NUMBER"
+            fi
+            gh issue edit "$NUMBER" --body-file body.md
           else
             gh issue create --title "$TITLE" --body-file body.md
           fi

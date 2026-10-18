@@ -114,13 +114,13 @@ they never rewrite the constraints themselves. A dependency declared as
 editing the bound in `pyproject.toml` by hand, then re-locking — which is the
 point at which you find out whether the new major breaks anything.
 
-Dependabot opens a monthly pull request bumping `uv.lock`, and CI runs the full
-test matrix against the new versions, so most upgrades arrive as a PR you only
-need to review and merge.
+The `Outdated dependencies` workflow's `upgrade` job opens a monthly pull
+request bumping `uv.lock`, and CI runs the full test matrix against the new
+versions, so most upgrades arrive as a PR you only need to review and merge.
 
-Releases that fall *outside* the declared bounds never reach those PRs, so a
-monthly `Outdated dependencies` workflow lists them in a GitHub issue instead.
-It only reports; acting on it is the manual bound-widening step above.
+Releases that fall *outside* the declared bounds never reach those PRs, so the
+same workflow's `report` job lists them in a GitHub issue instead. It only
+reports; acting on it is the manual bound-widening step above.
 
 ## Module layout
 
