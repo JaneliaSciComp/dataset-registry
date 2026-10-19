@@ -6,14 +6,20 @@ import re
 import subprocess
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import tomli_w
 from coolname import generate_slug
 from platformdirs import user_cache_dir
 from pydantic import BaseModel
 
-from dataset_registry._schema import FreeformMetadata, RegistryInfo, Representation, Sample
+from dataset_registry._schema import (
+    DataReference,
+    FreeformMetadata,
+    RegistryInfo,
+    Representation,
+    Sample,
+)
 
 SAMPLE_FILENAME = "sample.toml"
 REPRESENTATIONS_DIRNAME = "representations"
@@ -28,6 +34,8 @@ _logger = logging.getLogger(__name__)
 # Sentinel distinguishing "leave this field unchanged" from "set it to None".
 _UNSET = object()
 
+_DataReferenceT = TypeVar("_DataReferenceT", bound=DataReference)
+
 
 def _load_raw(path: Path) -> dict[str, Any]:
     with path.open("rb") as f:
@@ -36,11 +44,11 @@ def _load_raw(path: Path) -> dict[str, Any]:
 
 
 def _load_model(
-    model_cls: type[Sample] | type[Representation],
+    model_cls: type[_DataReferenceT],
     raw: dict[str, Any],
     *,
     metadata_model: type[BaseModel],
-) -> Any:
+) -> _DataReferenceT:
     """`model_cls.model_validate(raw)`, with `metadata` validated into `metadata_model`.
 
     `metadata` in `raw` is always a plain dict (TOML has no concept of a
@@ -324,7 +332,7 @@ class Registry:
         """
         sample_dir = self._find_sample_dir(sample_id)
         raw = _load_raw(sample_dir / SAMPLE_FILENAME)
-        sample: Sample = _load_model(Sample, raw, metadata_model=self._sample_metadata)
+        sample = _load_model(Sample, raw, metadata_model=self._sample_metadata)
         return sample
 
     def load_representation(self, sample_id: str, representation_id: str) -> Representation:
@@ -343,7 +351,7 @@ class Registry:
         """
         representation_path = self._find_representation_path(sample_id, representation_id)
         raw = _load_raw(representation_path)
-        representation: Representation = _load_model(
+        representation = _load_model(
             Representation, raw, metadata_model=self._representation_metadata
         )
         return representation
@@ -480,6 +488,7 @@ class Registry:
 
         representation = Representation(
             id=representation_id,
+            sample_id=sample_id,
             name=name,
             path=path,
             depends_on=depends_on,
