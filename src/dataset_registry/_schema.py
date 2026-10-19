@@ -19,7 +19,7 @@ class RegistryInfo(BaseModel):
     """Human-readable display title, e.g. for the `browse` UI"""
 
 
-class DataReference(BaseModel):
+class DataRecord(BaseModel):
     """What's needed to describe an object or data: an id, name, description, and metadata."""
 
     model_config = ConfigDict(
@@ -27,8 +27,11 @@ class DataReference(BaseModel):
         validate_assignment=True,
     )
 
-    id: str
-    """Stable identity, immutable once set -- unaffected by renaming `name`."""
+    id: str = Field(frozen=True)
+    """Stable identity, immutable once set -- unaffected by renaming `name`.
+    `frozen=True` enforces this: reassigning `.id` on a loaded instance
+    raises `ValidationError` rather than silently drifting from the
+    directory `RecordStore` already filed it under."""
 
     name: str
     """Display name. Free to change without affecting `id`."""
@@ -41,11 +44,11 @@ class DataReference(BaseModel):
     (fieldless) schema, silently dropping subclass fields on write."""
 
 
-class Sample(DataReference):
+class Sample(DataRecord):
     """A named, version-controlled entity that groups one or more representations of data."""
 
 
-class Representation(DataReference):
+class Representation(DataRecord):
     """A named path to a specific piece of data belonging to a `Sample`."""
 
     sample_id: str

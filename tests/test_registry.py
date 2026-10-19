@@ -1,433 +1,151 @@
-import subprocess
+import random
 from pathlib import Path
 
 import pytest
 import tomli_w
 
 from dataset_registry import Registry
+from dataset_registry._registry import _load_raw
+from dataset_registry._schema import FreeformMetadata
 
 
-def _write_toml(path: Path, data: dict) -> None:
+@pytest.fixture(autouse=True)
+def _seed_random():
+    """Seed the global `random` module before each test.
+
+    `coolname.generate_slug` (used by `generate_sample_id`/
+    `generate_representation_id` for their random-word suffix) draws from
+    Python's global `random` state, so without this, ids generated via the
+    registry API vary from run to run.
+    """
+    random.seed(0)
+
+
+@pytest.fixture
+def registry(tmp_path) -> Registry:
+    return Registry(tmp_path)
+
+
+@pytest.fixture
+def sample_id(registry: Registry) -> str:
+    return registry.create_sample(
+        "SLS161", description="a lightsheet embryo", metadata={"strain": "SLS267"}
+    )
+
+
+@pytest.fixture
+def repr_id(registry, sample_id):
+    return registry.create_representation(
+        sample_id,
+        "raw",
+        path="/data/SLS161/raw.zarr",
+        metadata={"channel_label": "nuclear"},
+    )
+
+
+@pytest.fixture
+def repr2_id(registry, sample_id, repr_id):
+    return registry.create_representation(
+        sample_id,
+        "cellpose_v3",
+        path="/data/SLS161/masks.zarr",
+        depends_on=[repr_id],
+    )
+
+
+def write_toml(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as f:
         tomli_w.dump(data, f)
 
 
-def _write_sample(registry_root: Path, dirname: str, **fields) -> Path:
-    sample_dir = registry_root / dirname
-    _write_toml(sample_dir / "sample.toml", {"id": dirname, "name": dirname, **fields})
-    return sample_dir
-
-
-def _write_representation(
-    registry_root: Path, sample_dirname: str, filename: str, **fields
-) -> Path:
-    path = registry_root / sample_dirname / "representations" / f"{filename}.toml"
-    _write_toml(path, {"id": filename, "name": filename, **fields})
-    return path
-
-
-def test_load_sample_reads_its_fields(tmp_path):
-    _write_sample(tmp_path, "SLS161", description="a lightsheet embryo")
-    registry = Registry(tmp_path)
-
-    sample = registry.load_sample("SLS161")
-
-    assert sample.id == "SLS161"
-    assert sample.name == "SLS161"
-    assert sample.description == "a lightsheet embryo"
-
-
-def test_load_sample_raises_when_missing(tmp_path):
-    registry = Registry(tmp_path)
-
-    with pytest.raises(FileNotFoundError, match="no sample with id"):
-        registry.load_sample("does-not-exist")
-
-
-def test_load_sample_finds_a_sample_whose_id_does_not_match_its_directory(tmp_path):
-    _write_toml(
-        tmp_path / "some-directory" / "sample.toml", {"id": "elsewhere", "name": "Embryo A"}
-    )
-    registry = Registry(tmp_path)
-
-    sample = registry.load_sample("elsewhere")
-
-    assert sample.name == "Embryo A"
-
-
-def test_load_representation_reads_its_fields(tmp_path):
-    _write_sample(tmp_path, "SLS161")
-    _write_representation(tmp_path, "SLS161", "raw", path="/groups/shroff/raw.tif")
-    registry = Registry(tmp_path)
-
-    representation = registry.load_representation("SLS161", "raw")
-
-    assert representation.id == "raw"
-    assert representation.name == "raw"
-    assert representation.path == "/groups/shroff/raw.tif"
-
-
-def test_load_representation_raises_when_missing(tmp_path):
-    _write_sample(tmp_path, "SLS161")
-    registry = Registry(tmp_path)
-
-    with pytest.raises(FileNotFoundError, match="no representation"):
-        registry.load_representation("SLS161", "does-not-exist")
-
-
-def test_load_representation_finds_a_representation_whose_id_does_not_match_its_filename(tmp_path):
-    _write_sample(tmp_path, "SLS161")
-    _write_toml(
-        tmp_path / "SLS161" / "representations" / "some-file.toml",
-        {"id": "elsewhere", "name": "Raw scan", "path": "a"},
-    )
-    registry = Registry(tmp_path)
-
-    representation = registry.load_representation("SLS161", "elsewhere")
-
-    assert representation.name == "Raw scan"
-
-
-def test_load_representation_reads_metadata_and_depends_on(tmp_path):
-    _write_sample(tmp_path, "SLS161")
-    _write_representation(
-        tmp_path,
-        "SLS161",
-        "raw",
-        path="/groups/shroff/raw.tif",
-    )
-    _write_representation(
-        tmp_path,
-        "SLS161",
-        "cellpose_v3",
-        path="/nrs/shroff/masks.zarr",
-        depends_on=["raw"],
-        metadata={"channel_label": "nuclear"},
-    )
-    registry = Registry(tmp_path)
-
-    representation = registry.load_representation("SLS161", "cellpose_v3")
-
-    assert representation.depends_on == ["raw"]
-    assert representation.metadata.model_dump(exclude_none=True) == {"channel_label": "nuclear"}
-
-
-def test_depends_on_is_loaded_via_load_representation_with_the_same_sample_id(tmp_path):
-    _write_sample(tmp_path, "SLS161")
-    _write_representation(tmp_path, "SLS161", "raw", path="/groups/shroff/raw.tif")
-    _write_representation(
-        tmp_path, "SLS161", "cellpose_v3", path="/nrs/shroff/masks.zarr", depends_on=["raw"]
-    )
-    registry = Registry(tmp_path)
-
-    segmentation = registry.load_representation("SLS161", "cellpose_v3")
-    (dependency_id,) = segmentation.depends_on
-    dependency = registry.load_representation("SLS161", dependency_id)
-
-    assert dependency.path == "/groups/shroff/raw.tif"
-
-
-def test_list_samples_finds_only_directories_with_a_sample_toml(tmp_path):
-    _write_sample(tmp_path, "SLS161")
-    _write_sample(tmp_path, "SLS042")
-    (tmp_path / "not_a_sample").mkdir()
-    registry = Registry(tmp_path)
-
-    assert registry.list_samples() == ["SLS042", "SLS161"]
-
-
-def test_list_representations_finds_every_representation_for_a_sample(tmp_path):
-    _write_sample(tmp_path, "SLS161")
-    _write_representation(tmp_path, "SLS161", "raw", path="a")
-    _write_representation(tmp_path, "SLS161", "cellpose_v3", path="b")
-    registry = Registry(tmp_path)
-
-    assert registry.list_representations("SLS161") == ["cellpose_v3", "raw"]
-
-
-def test_find_samples_by_name_returns_every_match(tmp_path):
-    _write_sample(tmp_path, "a", name="Embryo A")
-    _write_sample(tmp_path, "b", name="Embryo A")
-    _write_sample(tmp_path, "c", name="Embryo B")
-    registry = Registry(tmp_path)
-
-    matches = registry.find_samples_by_name("Embryo A")
-
-    assert sorted(sample.id for sample in matches) == ["a", "b"]
-
-
-def test_find_samples_by_name_returns_empty_list_when_no_match(tmp_path):
-    _write_sample(tmp_path, "a", name="Embryo A")
-    registry = Registry(tmp_path)
-
-    assert registry.find_samples_by_name("does-not-exist") == []
-
-
-def test_find_representations_by_name_returns_every_match(tmp_path):
-    _write_sample(tmp_path, "SLS161")
-    _write_representation(tmp_path, "SLS161", "a", name="Raw scan", path="x")
-    _write_representation(tmp_path, "SLS161", "b", name="Raw scan", path="y")
-    _write_representation(tmp_path, "SLS161", "c", name="Segmentation", path="z")
-    registry = Registry(tmp_path)
-
-    matches = registry.find_representations_by_name("SLS161", "Raw scan")
-
-    assert sorted(representation.id for representation in matches) == ["a", "b"]
-
-
-def test_rename_sample_changes_name_without_moving_directory(tmp_path):
-    _write_sample(tmp_path, "SLS161")
-    registry = Registry(tmp_path)
-
-    registry.rename_sample("SLS161", "Embryo A")
-
-    assert (tmp_path / "SLS161").is_dir()
-    sample = registry.load_sample("SLS161")
-    assert sample.id == "SLS161"
-    assert sample.name == "Embryo A"
-
-
-def test_rename_representation_changes_name_without_moving_file(tmp_path):
-    _write_sample(tmp_path, "SLS161")
-    _write_representation(tmp_path, "SLS161", "raw", path="a")
-    registry = Registry(tmp_path)
-
-    registry.rename_representation("SLS161", "raw", "Raw scan")
-
-    representation_path = tmp_path / "SLS161" / "representations" / "raw.toml"
-    assert representation_path.is_file()
-    representation = registry.load_representation("SLS161", "raw")
-    assert representation.id == "raw"
-    assert representation.name == "Raw scan"
-
-
-def test_set_representation_fields_updates_depends_on(tmp_path):
-    registry = Registry(tmp_path)
-    sample_id = registry.create_sample("Embryo A")
-    raw_id = registry.create_representation(sample_id, "Raw scan", path="a")
-    seg_id = registry.create_representation(sample_id, "Cellpose v3", path="b")
-
-    registry.set_representation_fields(sample_id, seg_id, depends_on=[raw_id])
-
-    representation = registry.load_representation(sample_id, seg_id)
-    assert representation.depends_on == [raw_id]
-
-
-def test_set_representation_fields_clears_depends_on_with_none(tmp_path):
-    registry = Registry(tmp_path)
-    sample_id = registry.create_sample("Embryo A")
-    raw_id = registry.create_representation(sample_id, "Raw scan", path="a")
-    seg_id = registry.create_representation(sample_id, "Cellpose v3", path="b", depends_on=[raw_id])
-
-    registry.set_representation_fields(sample_id, seg_id, depends_on=None)
-
-    representation = registry.load_representation(sample_id, seg_id)
-    assert representation.depends_on is None
-
-
-def test_set_representation_fields_leaves_depends_on_unchanged_when_omitted(tmp_path):
-    registry = Registry(tmp_path)
-    sample_id = registry.create_sample("Embryo A")
-    raw_id = registry.create_representation(sample_id, "Raw scan", path="a")
-    seg_id = registry.create_representation(sample_id, "Cellpose v3", path="b", depends_on=[raw_id])
-
-    registry.set_representation_fields(sample_id, seg_id, path="c")
-
-    representation = registry.load_representation(sample_id, seg_id)
-    assert representation.depends_on == [raw_id]
-    assert representation.path == "c"
-
-
-def test_create_sample_generates_a_unique_id_and_is_loadable(tmp_path):
-    registry = Registry(tmp_path)
-
-    sample_id = registry.create_sample("Embryo A", description="a lightsheet embryo")
-
-    sample = registry.load_sample(sample_id)
-    assert sample.id == sample_id
-    assert sample.name == "Embryo A"
-    assert sample.description == "a lightsheet embryo"
-
-
-def test_create_representation_generates_a_unique_id_and_is_loadable(tmp_path):
-    registry = Registry(tmp_path)
-    sample_id = registry.create_sample("Embryo A")
-
-    representation_id = registry.create_representation(
-        sample_id, "Raw scan", path="/groups/shroff/raw.tif"
-    )
-
-    representation = registry.load_representation(sample_id, representation_id)
-    assert representation.id == representation_id
-    assert representation.name == "Raw scan"
-    assert representation.path == "/groups/shroff/raw.tif"
-
-
-def test_generate_sample_id_slugifies_the_name_with_a_random_word_suffix(tmp_path):
-    registry = Registry(tmp_path)
-
-    sample_id = registry.generate_sample_id("Embryo A")
-
-    prefix, _, suffix = sample_id.rpartition("-")
-    assert prefix == "embryo-a"
-    assert suffix  # a random word, always present
-
-
-def test_generate_sample_id_caps_the_slug_at_four_words(tmp_path):
-    registry = Registry(tmp_path)
-
-    sample_id = registry.generate_sample_id("Embryo A cross of SLS267 and OH15257")
-
-    prefix, _, _suffix = sample_id.rpartition("-")
-    assert prefix == "embryo-a-cross-of"
-
-
-def test_generate_sample_id_retries_on_a_forced_collision(tmp_path, monkeypatch):
-    words = iter(["taken", "taken", "fresh"])
-    monkeypatch.setattr("dataset_registry._registry._random_word", lambda: next(words))
-    registry = Registry(tmp_path)
-    registry.create_sample("First")  # takes "first-taken"
-
-    sample_id = registry.generate_sample_id("First")
-
-    assert sample_id == "first-fresh"
-
-
-def test_depends_on_resolves_by_id_after_the_referenced_representation_is_renamed(tmp_path):
-    registry = Registry(tmp_path)
-    sample_id = registry.create_sample("Embryo A")
-    raw_id = registry.create_representation(sample_id, "Raw scan", path="a")
-    seg_id = registry.create_representation(sample_id, "Cellpose v3", path="b", depends_on=[raw_id])
-
-    registry.rename_representation(sample_id, raw_id, "Renamed raw scan")
-
-    segmentation = registry.load_representation(sample_id, seg_id)
-    (dependency_id,) = segmentation.depends_on
-    dependency = registry.load_representation(sample_id, dependency_id)
-
-    assert dependency.id == raw_id
-    assert dependency.name == "Renamed raw scan"
-
-
-def _git(args: list[str], cwd: Path) -> None:
-    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
-
-
-def _init_remote(tmp_path: Path) -> Path:
-    remote = tmp_path / "remote"
-    remote.mkdir()
-    _git(["init", "-q", "-b", "main"], cwd=remote)
-    _git(["config", "user.email", "test@example.com"], cwd=remote)
-    _git(["config", "user.name", "Test"], cwd=remote)
-    _write_sample(remote, "SLS161")
-    _git(["add", "-A"], cwd=remote)
-    _git(["commit", "-q", "-m", "initial"], cwd=remote)
-    return remote
-
-
-@pytest.fixture(autouse=True)
-def _isolated_cache(tmp_path, monkeypatch):
-    # Every test gets its own cache dir, so runs never share (or pollute)
-    # the real user cache directory or each other's clones.
-    monkeypatch.setattr(
-        "dataset_registry._registry.user_cache_dir", lambda _app: str(tmp_path / "cache")
-    )
-
-
-def test_registry_uses_a_local_directory_directly(tmp_path):
-    local = tmp_path / "local-registry"
-    _write_sample(local, "SLS161")
-
-    registry = Registry(local)
-
-    assert registry.path == local
-    assert registry.commit is None  # not a git repo
-
-
-def test_registry_reports_commit_for_a_local_git_directory(tmp_path):
-    remote = _init_remote(tmp_path)
-
-    registry = Registry(remote)
-
-    assert registry.path == remote
-    expected = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=remote, capture_output=True, text=True, check=True
-    ).stdout.strip()
-    assert registry.commit == expected
-
-
-def test_registry_clones_a_git_url_into_the_cache(tmp_path):
-    remote = _init_remote(tmp_path)
-
-    registry = Registry(remote.as_uri())
-
-    assert registry.path != remote
-    assert registry.load_sample("SLS161").id == "SLS161"
-    assert registry.commit is not None
-
-
-def test_registry_reuses_the_cache_and_picks_up_new_commits(tmp_path):
-    remote = _init_remote(tmp_path)
-
-    first = Registry(remote.as_uri())
-
-    _write_sample(remote, "SLS042")
-    _git(["add", "-A"], cwd=remote)
-    _git(["commit", "-qm", "update"], cwd=remote)
-
-    second = Registry(remote.as_uri())
-
-    assert second.path == first.path  # same cache directory reused
-    assert second.commit != first.commit
-    assert second.list_samples() == ["SLS042", "SLS161"]
-
-
-def test_registry_falls_back_to_cache_on_fetch_failure(tmp_path, monkeypatch):
-    remote = _init_remote(tmp_path)
-
-    first = Registry(remote.as_uri())
-
-    def _boom(*args, **kwargs):
-        raise subprocess.SubprocessError("simulated network failure")
-
-    monkeypatch.setattr("dataset_registry._registry._fetch_latest", _boom)
-
-    second = Registry(remote.as_uri())
-
-    assert second.path == first.path
-    assert second.commit == first.commit
-
-
-def test_registry_raises_when_no_cache_and_clone_fails(tmp_path):
-    with pytest.raises(subprocess.CalledProcessError):
-        Registry((tmp_path / "no-such-remote").as_uri())
-
-
-def test_registry_with_fetch_false_reuses_cache_without_fetching(tmp_path, monkeypatch):
-    remote = _init_remote(tmp_path)
-
-    first = Registry(remote.as_uri())
-
-    _write_sample(remote, "SLS042")
-    _git(["add", "-A"], cwd=remote)
-    _git(["commit", "-qm", "update"], cwd=remote)
-
-    def _boom(*args, **kwargs):
-        raise AssertionError("fetch=False should not fetch")
-
-    monkeypatch.setattr("dataset_registry._registry._fetch_latest", _boom)
-
-    second = Registry(remote.as_uri(), fetch=False)
-
-    assert second.path == first.path
-    assert second.commit == first.commit
-    assert second.list_samples() == ["SLS161"]  # SLS042 not picked up -- no fetch happened
-
-
-def test_registry_with_fetch_false_still_clones_when_no_cache_exists(tmp_path):
-    remote = _init_remote(tmp_path)
-
-    registry = Registry(remote.as_uri(), fetch=False)
-
-    assert registry.list_samples() == ["SLS161"]
+def overwrite_id(path: Path, new_id: str) -> None:
+    """Rewrite the `id` field of the TOML file at `path`, in place."""
+    toml = _load_raw(path)
+    toml["id"] = new_id
+    write_toml(path, toml)
+
+
+class TestRegistry:
+    def test_write_sample(self, registry):
+        registry.create_sample(
+            "SLS161", description="a lightsheet embryo", metadata={"strain": "SLS267"}
+        )
+
+    def test_load_sample(self, registry: Registry, sample_id: str):
+        sample = registry.load_sample(sample_id)
+        assert sample.id == sample_id
+        assert sample.name == "SLS161"
+        assert sample.description == "a lightsheet embryo"
+        assert isinstance(sample.metadata, FreeformMetadata)
+        assert sample.metadata.strain == "SLS267"
+
+        with pytest.raises(FileNotFoundError, match="no Sample with id"):
+            registry.load_sample("does-not-exist")
+
+        # mutate the sample_id artificially so it doesn't match the directory
+        sample_path = registry._sample_store._find_dir(sample_id) / "sample.toml"
+        new_id = "test"
+        overwrite_id(sample_path, new_id)
+        sample = registry.load_sample(new_id)
+        assert sample.id == new_id
+        assert sample.name == "SLS161"
+        assert sample.description == "a lightsheet embryo"
+
+    def test_load_representation(
+        self, registry: Registry, sample_id: str, repr_id: str, repr2_id: str
+    ):
+        representation = registry.load_representation(sample_id, repr_id)
+        assert representation.id == repr_id
+        assert representation.name == "raw"
+        assert representation.path == "/data/SLS161/raw.zarr"
+        assert isinstance(representation.metadata, FreeformMetadata)
+        assert representation.metadata.channel_label == "nuclear"
+
+        representation2 = registry.load_representation(sample_id, repr2_id)
+        assert representation2.depends_on == [repr_id]
+
+        with pytest.raises(FileNotFoundError, match="no Representation"):
+            registry.load_representation(sample_id, "does-not-exist")
+
+        # mutate the representation_id artificially so it doesn't match the directory name
+        representation_dir = registry._get_repr_store(sample_id)._find_dir(repr_id)
+        new_id = "test"
+        overwrite_id(representation_dir / "representation.toml", new_id)
+        representation = registry.load_representation(sample_id, new_id)
+        assert representation.id == new_id
+        assert representation.name == "raw"
+        assert representation.path == "/data/SLS161/raw.zarr"
+
+    def test_list_samples(self, registry: Registry, sample_id: str):
+        # empty registry: no samples yet besides the fixture-created one
+        assert registry.list_samples() == [sample_id]
+
+        # a second sample, with an id that sorts before the first
+        other_id = registry.create_sample("Embryo A")
+        assert registry.list_samples() == sorted([sample_id, other_id])
+
+        # a directory with no sample.toml in it is ignored
+        (registry.path / "not_a_sample").mkdir()
+        assert registry.list_samples() == sorted([sample_id, other_id])
+
+        # a sample's id comes from its sample.toml, not its directory name
+        sample_path = registry._sample_store._find_dir(sample_id) / "sample.toml"
+        overwrite_id(sample_path, "renamed-id")
+        assert registry.list_samples() == sorted(["renamed-id", other_id])
+
+    def test_list_representations(
+        self, registry: Registry, sample_id: str, repr_id: str, repr2_id: str
+    ):
+        assert registry.list_representations(sample_id) == sorted([repr_id, repr2_id])
+
+        # a directory with no representation.toml in it is ignored, .toml or not
+        representation_dir = registry._get_repr_store(sample_id)._find_dir(repr_id)
+        other_dir = representation_dir.parent / "not_a_representation"
+        other_dir.mkdir()
+        (other_dir / "not_a_representation.toml").write_text("")
+        assert registry.list_representations(sample_id) == sorted([repr_id, repr2_id])
+
+        # a representation's id comes from its own file, not its directory name
+        overwrite_id(representation_dir / "representation.toml", "renamed-id")
+        assert registry.list_representations(sample_id) == sorted(["renamed-id", repr2_id])
