@@ -1,6 +1,8 @@
+import operator
 import re
 import tomllib
 from collections.abc import Container
+from functools import reduce
 from pathlib import Path
 from typing import Annotated, Any, Generic, TypeVar
 
@@ -57,7 +59,8 @@ def _random_word() -> str:
 def _build_metadata_type(metadata_model: type[BaseModel] | list[type[BaseModel]]) -> Any:
     """`metadata_model` or a `type`-discriminated union if it's a list."""
     if isinstance(metadata_model, list):
-        return Annotated[tuple(metadata_model), Field(discriminator="type")]
+        union_type = reduce(operator.or_, metadata_model)
+        return Annotated[union_type, Field(discriminator="type")]
     return metadata_model
 
 
