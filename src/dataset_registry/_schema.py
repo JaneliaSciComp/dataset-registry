@@ -1,71 +1,62 @@
-from typing import Any
-
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny
 
 
 class FreeformMetadata(BaseModel):
     """The default, project-agnostic shape for `Sample`/`Representation` `metadata`.
 
-    Accepts any keys with no validation -- the registry's own fallback when
-    no project-specific `sample_metadata_model`/`representation_metadata_model`
-    is given to `Registry.__init__`. A project that wants validated fields
-    passes its own `BaseModel` subclass there instead.
+    Accepts any keys with no validation.
     """
 
     model_config = ConfigDict(extra="allow")
 
 
 class RegistryInfo(BaseModel):
-    """Registry-level settings, read from an optional `registry.toml` at the registry root.
-
-    Entirely optional: a registry with no `registry.toml` still works with
-    every other function in this package -- see `load_registry_info`'s
-    fallback behavior.
-    """
+    """Registry-level settings, read from an optional `registry.toml` at the registry root."""
 
     model_config = ConfigDict(extra="forbid")
 
     title: str | None = None
-    """Human-readable display title, e.g. for the `browse` UI. Falls back to
-    a title derived from the registry root's directory name when unset."""
+    """Human-readable display title, e.g. for the `browse` UI"""
 
 
-class Sample(BaseModel):
-    """A named, version-controlled entity that groups one or more representations of data."""
+class DataRecord(BaseModel):
+    """What's needed to describe an object or data: an id, name, description, and metadata."""
 
     model_config = ConfigDict(
-        extra="forbid", validate_assignment=True, arbitrary_types_allowed=True
+        extra="forbid",
+        validate_assignment=True,
     )
 
-    id: str
-    """Stable identity, immutable once set -- unaffected by renaming `name`."""
+    id: str = Field(frozen=True)
+    """Stable identity, immutable once set -- unaffected by renaming `name`.
+    `frozen=True` enforces this: reassigning `.id` on a loaded instance
+    raises `ValidationError` rather than silently drifting from the
+    directory `RecordStore` already filed it under."""
 
     name: str
     """Display name. Free to change without affecting `id`."""
 
     description: str | None = None
-    metadata: Any = Field(default_factory=FreeformMetadata)
-    """Always a `BaseModel` instance: `FreeformMetadata` (accepts any keys)
-    unless `Registry.__init__` was given a `sample_metadata_model`, in which
-    case it's an instance of that model instead. Typed `Any` rather than a
-    `BaseModel | dict` union -- pydantic-core's union serializer doesn't
-    recurse into an arbitrary nested `BaseModel` correctly, silently
-    dropping its fields on write; `Any` serializes a runtime `BaseModel`
-    value as-is."""
+
+    metadata: SerializeAsAny[BaseModel] = Field(default_factory=FreeformMetadata)
+    """Wrapped in `SerializeAsAny` because pydantic-core
+    otherwise serializes a `BaseModel`-typed field using `BaseModel`'s own
+    (fieldless) schema, silently dropping subclass fields on write."""
 
 
-class Representation(BaseModel):
+class Sample(DataRecord):
+    """A named, version-controlled entity that groups one or more representations of data."""
+
+
+class Representation(DataRecord):
     """A named path to a specific piece of data belonging to a `Sample`."""
 
-    model_config = ConfigDict(
-        extra="forbid", validate_assignment=True, arbitrary_types_allowed=True
-    )
-
-    id: str
-    """Stable identity, immutable once set -- unaffected by renaming `name`."""
-
-    name: str
-    """Display name. Free to change without affecting `id`."""
+    sample_id: str
+    """The owning `Sample`'s stable id. Stored here rather than inferred from
+    where this representation's file lives on disk -- same reasoning as
+    `id` itself: identity comes from a model's own fields, never from
+    location, so storage could later move (different directory layout, a
+    database) without changing what a `Representation` means."""
 
     path: str
     """Filesystem path to this representation's data. The whole point of
@@ -74,13 +65,4 @@ class Representation(BaseModel):
 
     depends_on: list[str] | None = None
     """Ids of other representations of the same sample that this one was
-    produced from. IDs, not display names -- stable across renames. Load a
-    dependency with ``registry.load_representation(sample_id, dependency_id)``,
-    reusing this representation's own `sample_id`."""
-
-    metadata: Any = Field(default_factory=FreeformMetadata)
-    """Always a `BaseModel` instance: `FreeformMetadata` (accepts any keys)
-    unless `Registry.__init__` was given a `representation_metadata_model`,
-    in which case it's an instance of that model instead. See
-    `Sample.metadata` for why this is typed `Any` rather than a
-    `BaseModel | dict` union."""
+    produced from. IDs, not display names -- stable across renames"""

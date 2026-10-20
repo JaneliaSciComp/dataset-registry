@@ -2,105 +2,31 @@
 
 import hashlib
 import logging
-import re
 import subprocess
-import tomllib
 from pathlib import Path
 from typing import Any
 
-import tomli_w
-from coolname import generate_slug
 from platformdirs import user_cache_dir
 from pydantic import BaseModel
 
-from dataset_registry._schema import FreeformMetadata, RegistryInfo, Representation, Sample
+from ._record_store import RecordStore, _load_raw, _write_raw
+from ._schema import (
+    FreeformMetadata,
+    RegistryInfo,
+    Representation,
+    Sample,
+)
 
 SAMPLE_FILENAME = "sample.toml"
-REPRESENTATIONS_DIRNAME = "representations"
+REPRESENTATION_FILENAME = "representation.toml"
 REGISTRY_INFO_FILENAME = "registry.toml"
 
-_ID_GENERATION_ATTEMPTS = 100
 _CACHE_APP_NAME = "dataset-registry"
-_SLUG_MAX_WORDS = 4
 
 _logger = logging.getLogger(__name__)
 
 # Sentinel distinguishing "leave this field unchanged" from "set it to None".
 _UNSET = object()
-
-
-def _load_raw(path: Path) -> dict[str, Any]:
-    with path.open("rb") as f:
-        raw: dict[str, Any] = tomllib.load(f)
-    return raw
-
-
-def _load_model(
-    model_cls: type[Sample] | type[Representation],
-    raw: dict[str, Any],
-    *,
-    metadata_model: type[BaseModel],
-) -> Any:
-    """`model_cls.model_validate(raw)`, with `metadata` validated into `metadata_model`.
-
-    `metadata` in `raw` is always a plain dict (TOML has no concept of a
-    pydantic model) -- this is the one place that turns it into a
-    `metadata_model` instance before `model_cls`'s own fields are validated.
-    """
-    raw = {**raw, "metadata": metadata_model.model_validate(raw.get("metadata", {}))}
-    return model_cls.model_validate(raw)
-
-
-def _write_model(path: Path, model: BaseModel) -> None:
-    """Serialize `model` and write it to `path` as TOML.
-
-    Writing always goes through a validated model -- never a hand-built
-    dict -- so a caller can't persist a `sample.toml`/representation TOML
-    that wouldn't itself pass `model_validate` on the next load.
-    """
-    raw = model.model_dump(exclude_none=True)
-    with path.open("wb") as f:
-        tomli_w.dump(raw, f)
-
-
-def _slugify(name: str) -> str:
-    """Lowercase the first `_SLUG_MAX_WORDS` words of `name`, joined with `-`.
-
-    Non-alphanumeric runs are treated as word boundaries. Capped at
-    `_SLUG_MAX_WORDS` so a long display name (a full sentence, say) doesn't
-    produce an unwieldy id -- the random word suffix (see `_generate_id`)
-    still makes the id unique even when truncation collapses two different
-    names to the same prefix.
-    """
-    words = [word for word in re.split(r"[^a-z0-9]+", name.lower()) if word]
-    return "-".join(words[:_SLUG_MAX_WORDS])
-
-
-def _random_word() -> str:
-    # coolname has no single-word pattern; take one word off a two-word
-    # slug rather than fighting its config for a custom pattern.
-    slug: str = generate_slug(2)
-    return slug.split("-")[-1]
-
-
-def _generate_id(name: str, existing_ids: set[str]) -> str:
-    """A slugified-`name`-plus-random-word id (e.g. `"embryo-a-kudu"`) not in `existing_ids`.
-
-    The random word is always appended, even with no collision, so an id
-    never looks like it might just *be* the current display name -- `name`
-    is free to change later without the id looking like a stale copy of it.
-
-    Raises:
-        RuntimeError: If every attempt collided -- vanishingly unlikely for
-            any registry that isn't enormous, but a silent infinite loop
-            would be worse than a loud, rare failure.
-    """
-    slug = _slugify(name) or "unnamed"
-    for _ in range(_ID_GENERATION_ATTEMPTS):
-        candidate = f"{slug}-{_random_word()}"
-        if candidate not in existing_ids:
-            return candidate
-    raise RuntimeError(f"could not generate a unique id after {_ID_GENERATION_ATTEMPTS} attempts")
 
 
 def _cache_dir_for(git_url: str) -> Path:
@@ -188,13 +114,19 @@ class Registry:
         <path>/
           <sample directory>/
             sample.toml
-            representations/
-              <representation file>.toml
+            <representation directory>/
+              representation.toml
               ...
+            ...
 
-    Directory and file names carry no meaning of their own -- `id`/`name`
-    are always read from a `sample.toml`/representation TOML's own fields,
-    never inferred from where it lives on disk.
+    Directory names carry no meaning of their own -- `id`/`name` are always
+    read from a `sample.toml`/`representation.toml`'s own fields, never
+    inferred from where it lives on disk. Each is found by scanning for its
+    own filename, not by directory layout -- a sample's directory can hold
+    other subdirectories that aren't representations (they just won't have
+    a `representation.toml` inside), and a representation's directory can
+    hold more than its own `representation.toml` (e.g. a virtual-zarr
+    manifest, a thumbnail) -- this package only ever touches that one file.
     """
 
     path: Path
@@ -210,8 +142,8 @@ class Registry:
         location: str | Path,
         *,
         fetch: bool = True,
-        sample_metadata_model: type[BaseModel] = FreeformMetadata,
-        representation_metadata_model: type[BaseModel] = FreeformMetadata,
+        sample_metadata_model: type[BaseModel] | list[type[BaseModel]] = FreeformMetadata,
+        representation_metadata_model: type[BaseModel] | list[type[BaseModel]] = FreeformMetadata,
     ) -> None:
         """Resolve `location` to a local registry directory.
 
@@ -231,8 +163,10 @@ class Registry:
                 available (the directory itself, or a fresh clone).
             sample_metadata_model: Every `load_sample` call validates
                 `metadata` into this pydantic model -- a project-specific
-                `BaseModel` with its own typed fields, or the default
-                `FreeformMetadata`, which accepts any keys with no validation.
+                `BaseModel` with its own typed fields, the default
+                `FreeformMetadata`, which accepts any keys with no
+                validation, or a list of `BaseModel`s (each with a `type`
+                literal field) to validate as a discriminated union.
             representation_metadata_model: Same as `sample_metadata_model`,
                 for `load_representation`.
         """
@@ -241,6 +175,13 @@ class Registry:
             raise NotADirectoryError(f"{path} is not a directory")
         self.path = path
         self.commit = _current_commit(path)
+        self._sample_store: RecordStore[Sample] = RecordStore(
+            Sample,
+            metadata_model=sample_metadata_model,
+            parent_dir=self.path,
+            filename=SAMPLE_FILENAME,
+        )
+        self._repr_stores: dict[str, RecordStore[Representation]] = {}
         self._sample_metadata = sample_metadata_model
         self._representation_metadata = representation_metadata_model
 
@@ -249,65 +190,6 @@ class Registry:
         if title is not None:
             return f"Registry(title={title!r}, path={str(self.path)!r})"
         return f"Registry(path={str(self.path)!r})"
-
-    def _sample_dirs(self) -> list[Path]:
-        return sorted(p.parent for p in self.path.glob(f"*/{SAMPLE_FILENAME}"))
-
-    def _find_sample_dir(self, sample_id: str) -> Path:
-        """Find the directory whose sample has `sample_id`.
-
-        A sample's directory name carries no meaning of its own -- `id` is
-        only ever read from `sample.toml`'s own `id` field -- so this always
-        scans every sample in the registry.
-
-        Raises:
-            FileNotFoundError: If no sample with this id exists.
-        """
-        for sample_dir in self._sample_dirs():
-            raw = _load_raw(sample_dir / SAMPLE_FILENAME)
-            if raw.get("id") == sample_id:
-                return sample_dir
-        raise FileNotFoundError(f"no sample with id {sample_id!r} found under {self.path}")
-
-    def _find_representation_path(self, sample_id: str, representation_id: str) -> Path:
-        """Find the file whose representation has `representation_id`.
-
-        Same reasoning as `_find_sample_dir`: a representation's filename
-        carries no meaning of its own, so this always scans every
-        representation belonging to the sample.
-
-        Raises:
-            FileNotFoundError: If no such sample, or no representation with
-                this id under it, exists.
-        """
-        sample_dir = self._find_sample_dir(sample_id)
-        representations_dir = sample_dir / REPRESENTATIONS_DIRNAME
-
-        for representation_path in sorted(representations_dir.glob("*.toml")):
-            raw = _load_raw(representation_path)
-            if raw.get("id") == representation_id:
-                return representation_path
-
-        raise FileNotFoundError(
-            f"no representation with id {representation_id!r} found for sample "
-            f"{sample_id!r} under {self.path}"
-        )
-
-    def generate_sample_id(self, name: str) -> str:
-        """A slugified-`name`-plus-random-word id not already used as a sample id here."""
-        existing_ids = {
-            _load_raw(sample_dir / SAMPLE_FILENAME)["id"] for sample_dir in self._sample_dirs()
-        }
-        return _generate_id(name, existing_ids)
-
-    def generate_representation_id(self, sample_id: str, name: str) -> str:
-        """A slugified-`name`-plus-random-word id, unique among this sample's representations."""
-        sample_dir = self._find_sample_dir(sample_id)
-        representations_dir = sample_dir / REPRESENTATIONS_DIRNAME
-        existing_ids = {
-            _load_raw(path)["id"] for path in sorted(representations_dir.glob("*.toml"))
-        }
-        return _generate_id(name, existing_ids)
 
     def load_sample(self, sample_id: str) -> Sample:
         """Load one sample by id.
@@ -322,10 +204,27 @@ class Registry:
         Raises:
             FileNotFoundError: If no sample with this id exists.
         """
-        sample_dir = self._find_sample_dir(sample_id)
-        raw = _load_raw(sample_dir / SAMPLE_FILENAME)
-        sample: Sample = _load_model(Sample, raw, metadata_model=self._sample_metadata)
-        return sample
+        return self._sample_store.load(sample_id)
+
+    def _get_repr_store(self, sample_id: str) -> RecordStore[Representation]:
+        """The `RecordStore` for one sample's representations, caching it by `sample_id`.
+
+        Each sample has its own `RecordStore`, scoped to that sample's own
+        directory (`<sample dir>/*/representation.toml`) -- not shared
+        across samples, unlike `self._sample_store`.
+        """
+        if sample_id not in self._repr_stores:
+            sample_dir = self._sample_store._find_dir(sample_id)
+            if sample_dir is None:
+                raise FileNotFoundError(f"no sample with id {sample_id!r} found under {self.path}")
+            self._repr_stores[sample_id] = RecordStore(
+                Representation,
+                metadata_model=self._representation_metadata,
+                parent_dir=sample_dir,
+                filename=REPRESENTATION_FILENAME,
+            )
+
+        return self._repr_stores[sample_id]
 
     def load_representation(self, sample_id: str, representation_id: str) -> Representation:
         """Load one representation.
@@ -341,12 +240,8 @@ class Registry:
         Raises:
             FileNotFoundError: If no such sample or representation exists.
         """
-        representation_path = self._find_representation_path(sample_id, representation_id)
-        raw = _load_raw(representation_path)
-        representation: Representation = _load_model(
-            Representation, raw, metadata_model=self._representation_metadata
-        )
-        return representation
+        repr_store = self._get_repr_store(sample_id)
+        return repr_store.load(representation_id)
 
     def load_registry_info(self) -> RegistryInfo:
         """Load registry-level settings from an optional `registry.toml` at this registry's root.
@@ -368,9 +263,7 @@ class Registry:
         Returns:
             Sample ids, sorted, for every subdirectory containing a `sample.toml`.
         """
-        return sorted(
-            _load_raw(sample_dir / SAMPLE_FILENAME)["id"] for sample_dir in self._sample_dirs()
-        )
+        return sorted(self._sample_store.existing_ids())
 
     def list_representations(self, sample_id: str) -> list[str]:
         """The ids of every representation belonging to one sample.
@@ -381,9 +274,7 @@ class Registry:
         Returns:
             Representation ids, sorted.
         """
-        sample_dir = self._find_sample_dir(sample_id)
-        representations_dir = sample_dir / REPRESENTATIONS_DIRNAME
-        return sorted(_load_raw(path)["id"] for path in representations_dir.glob("*.toml"))
+        return sorted(self._get_repr_store(sample_id).existing_ids())
 
     def find_samples_by_name(self, name: str) -> list[Sample]:
         """Every sample in this registry whose `name` matches exactly.
@@ -438,17 +329,15 @@ class Registry:
         Returns:
             The newly generated sample id.
         """
-        sample_id = self.generate_sample_id(name)
-        sample_dir = self.path / sample_id
-        sample_dir.mkdir(parents=True)
+        sample_id = self._sample_store._generate_id(name)
 
         sample = Sample(
             id=sample_id,
             name=name,
             description=description,
-            metadata=self._sample_metadata.model_validate(metadata or {}),
+            metadata=self._sample_store._metadata_adapter.validate_python(metadata or {}),
         )
-        _write_model(sample_dir / SAMPLE_FILENAME, sample)
+        self._sample_store.write(sample)
         return sample_id
 
     def create_representation(
@@ -473,20 +362,18 @@ class Registry:
         Returns:
             The newly generated representation id.
         """
-        representation_id = self.generate_representation_id(sample_id, name)
-        sample_dir = self._find_sample_dir(sample_id)
-        representations_dir = sample_dir / REPRESENTATIONS_DIRNAME
-        representations_dir.mkdir(exist_ok=True)
+        repr_store = self._get_repr_store(sample_id=sample_id)
+        representation_id = repr_store._generate_id(name)
 
         representation = Representation(
             id=representation_id,
+            sample_id=sample_id,
             name=name,
             path=path,
             depends_on=depends_on,
-            metadata=self._representation_metadata.model_validate(metadata or {}),
+            metadata=repr_store._metadata_adapter.validate_python(metadata or {}),
         )
-        representation_path = representations_dir / f"{representation_id}.toml"
-        _write_model(representation_path, representation)
+        repr_store.write(representation)
         return representation_id
 
     def rename_sample(self, sample_id: str, new_name: str) -> None:
@@ -496,10 +383,9 @@ class Registry:
             sample_id: The sample's stable id.
             new_name: The new display name.
         """
-        sample_path = self._find_sample_dir(sample_id) / SAMPLE_FILENAME
-        sample = _load_model(Sample, _load_raw(sample_path), metadata_model=self._sample_metadata)
+        sample = self._sample_store.load(sample_id)
         sample.name = new_name
-        _write_model(sample_path, sample)
+        self._sample_store.write(sample)
 
     def rename_representation(self, sample_id: str, representation_id: str, new_name: str) -> None:
         """Change a representation's display `name`.
@@ -509,14 +395,10 @@ class Registry:
             representation_id: The representation's stable id.
             new_name: The new display name.
         """
-        representation_path = self._find_representation_path(sample_id, representation_id)
-        representation = _load_model(
-            Representation,
-            _load_raw(representation_path),
-            metadata_model=self._representation_metadata,
-        )
+        repr_store = self._get_repr_store(sample_id)
+        representation = repr_store.load(representation_id)
         representation.name = new_name
-        _write_model(representation_path, representation)
+        repr_store.write(representation)
 
     def set_sample_fields(
         self,
@@ -546,15 +428,14 @@ class Registry:
             metadata: The new `metadata` table, replacing it wholesale, or
                 omitted to leave it unchanged.
         """
-        sample_path = self._find_sample_dir(sample_id) / SAMPLE_FILENAME
-        sample = _load_model(Sample, _load_raw(sample_path), metadata_model=self._sample_metadata)
+        sample = self._sample_store.load(sample_id)
 
         if description is not _UNSET:
             sample.description = description
         if metadata is not _UNSET:
-            sample.metadata = self._sample_metadata.model_validate(metadata or {})
+            sample.metadata = self._sample_store._metadata_adapter.validate_python(metadata or {})
 
-        _write_model(sample_path, sample)
+        self._sample_store.write(sample)
 
     def set_representation_fields(
         self,
@@ -590,21 +471,17 @@ class Registry:
             metadata: The new `metadata` table, replacing it wholesale, or
                 omitted to leave it unchanged.
         """
-        representation_path = self._find_representation_path(sample_id, representation_id)
-        representation = _load_model(
-            Representation,
-            _load_raw(representation_path),
-            metadata_model=self._representation_metadata,
-        )
+        repr_store = self._get_repr_store(sample_id)
+        representation = repr_store.load(representation_id)
 
         if path is not _UNSET:
             representation.path = path
         if depends_on is not _UNSET:
             representation.depends_on = depends_on
         if metadata is not _UNSET:
-            representation.metadata = self._representation_metadata.model_validate(metadata or {})
+            representation.metadata = repr_store._metadata_adapter.validate_python(metadata or {})
 
-        _write_model(representation_path, representation)
+        repr_store.write(representation)
 
 
 def create_registry(
@@ -636,4 +513,6 @@ def create_registry(
 
     if title is not None:
         registry_info = RegistryInfo(title=title)
-        _write_model(registry_path / REGISTRY_INFO_FILENAME, registry_info)
+        _write_raw(
+            registry_path / REGISTRY_INFO_FILENAME, registry_info.model_dump(exclude_none=True)
+        )
