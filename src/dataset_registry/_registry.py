@@ -142,8 +142,8 @@ class Registry:
         location: str | Path,
         *,
         fetch: bool = True,
-        sample_metadata_model: type[BaseModel] = FreeformMetadata,
-        representation_metadata_model: type[BaseModel] = FreeformMetadata,
+        sample_metadata_model: type[BaseModel] | list[type[BaseModel]] = FreeformMetadata,
+        representation_metadata_model: type[BaseModel] | list[type[BaseModel]] = FreeformMetadata,
     ) -> None:
         """Resolve `location` to a local registry directory.
 
@@ -163,8 +163,10 @@ class Registry:
                 available (the directory itself, or a fresh clone).
             sample_metadata_model: Every `load_sample` call validates
                 `metadata` into this pydantic model -- a project-specific
-                `BaseModel` with its own typed fields, or the default
-                `FreeformMetadata`, which accepts any keys with no validation.
+                `BaseModel` with its own typed fields, the default
+                `FreeformMetadata`, which accepts any keys with no
+                validation, or a list of `BaseModel`s (each with a `type`
+                literal field) to validate as a discriminated union.
             representation_metadata_model: Same as `sample_metadata_model`,
                 for `load_representation`.
         """
@@ -333,7 +335,7 @@ class Registry:
             id=sample_id,
             name=name,
             description=description,
-            metadata=self._sample_metadata.model_validate(metadata or {}),
+            metadata=self._sample_store._metadata_adapter.validate_python(metadata or {}),
         )
         self._sample_store.write(sample)
         return sample_id
@@ -369,7 +371,7 @@ class Registry:
             name=name,
             path=path,
             depends_on=depends_on,
-            metadata=self._representation_metadata.model_validate(metadata or {}),
+            metadata=repr_store._metadata_adapter.validate_python(metadata or {}),
         )
         repr_store.write(representation)
         return representation_id
@@ -431,7 +433,7 @@ class Registry:
         if description is not _UNSET:
             sample.description = description
         if metadata is not _UNSET:
-            sample.metadata = self._sample_metadata.model_validate(metadata or {})
+            sample.metadata = self._sample_store._metadata_adapter.validate_python(metadata or {})
 
         self._sample_store.write(sample)
 
@@ -477,7 +479,7 @@ class Registry:
         if depends_on is not _UNSET:
             representation.depends_on = depends_on
         if metadata is not _UNSET:
-            representation.metadata = self._representation_metadata.model_validate(metadata or {})
+            representation.metadata = repr_store._metadata_adapter.validate_python(metadata or {})
 
         repr_store.write(representation)
 

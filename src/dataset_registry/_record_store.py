@@ -2,11 +2,11 @@ import re
 import tomllib
 from collections.abc import Container
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Annotated, Any, Generic, TypeVar
 
 import tomli_w
 from coolname import generate_slug
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, TypeAdapter
 
 from dataset_registry._schema import (
     DataRecord,
@@ -54,6 +54,13 @@ def _random_word() -> str:
     return slug.split("-")[-1]
 
 
+def _build_metadata_type(metadata_model: type[BaseModel] | list[type[BaseModel]]) -> Any:
+    """`metadata_model` or a `type`-discriminated union if it's a list."""
+    if isinstance(metadata_model, list):
+        return Annotated[tuple(metadata_model), Field(discriminator="type")]
+    return metadata_model
+
+
 class RecordStore(Generic[_DataRecordT]):
     """Groups what's different between samples and representations, so the generic
     find/list/load/write logic in `Registry` can be written once and shared.
@@ -75,12 +82,16 @@ class RecordStore(Generic[_DataRecordT]):
     def __init__(
         self,
         model_cls: type[_DataRecordT],
-        metadata_model: type[BaseModel],
+        metadata_model: type[BaseModel] | list[type[BaseModel]],
         parent_dir: Path,
         filename: str,
     ) -> None:
         self.model_cls = model_cls
         self.metadata_model = metadata_model
+        """A single pydantic model, or a list of models (each with a `type`
+        literal field) to be validated as a discriminated union -- see
+        `_metadata_adapter`."""
+        self._metadata_adapter: TypeAdapter[Any] = TypeAdapter(_build_metadata_type(metadata_model))
         self.parent_dir = parent_dir
         """Directory holding one subdirectory per record of this kind."""
         self.filename = filename
@@ -184,7 +195,7 @@ class RecordStore(Generic[_DataRecordT]):
         if record_dir is None:
             raise FileNotFoundError(f"no {self.model_cls.__name__} with id {record_id!r} found")
         raw = _load_raw(record_dir / self.filename)
-        raw = {**raw, "metadata": self.metadata_model.model_validate(raw.get("metadata", {}))}
+        raw = {**raw, "metadata": self._metadata_adapter.validate_python(raw.get("metadata", {}))}
         return self.model_cls.model_validate(raw)
 
     def write(self, model: _DataRecordT) -> None:
